@@ -13,11 +13,14 @@
 extern crate hashbrown;
 extern crate rustc_hash;
 extern crate test;
+extern crate rand;
 
 use std::hash::Hash;
 use test::Bencher;
 
 use hashbrown::HashMap;
+use hashbrown::HashSet;
+use rand::Rng;
 //use rustc_hash::FxHashMap as HashMap;
 //use std::collections::HashMap;
 
@@ -57,6 +60,27 @@ fn grow_by_insertion(b: &mut Bencher) {
         k += 1;
     });
 }
+
+#[bench]
+fn test_insertion_removal(b: &mut Bencher) {
+    let mut m: HashSet<Vec<u8>> = HashSet::new();
+    let tx: Vec<Vec<u8>> = (0..4096)
+             .map(|_| 
+                (rand::thread_rng().gen_iter::<u8>().take(16)).collect())
+             .collect();
+
+    b.iter(|| {
+        for i in 0..4096 {
+            assert_eq!(m.contains(&tx[i].clone()), false);
+            assert_eq!(m.insert(tx[i].clone()), true);
+        }
+        for i in 0..4096 {
+            println!("removing {} {:?}", i, tx[i]);
+            assert_eq!(m.remove(&tx[i]), true);
+        }
+    });
+}
+
 
 #[bench]
 fn find_existing(b: &mut Bencher) {
