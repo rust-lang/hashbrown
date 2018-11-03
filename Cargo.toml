@@ -13,6 +13,7 @@ categories = ["data-structures", "no-std"]
 scopeguard = { version = "0.3", default-features = false }
 byteorder = { version = "1.0", default-features = false }
 serde = { version = "1.0", default-features = false, optional = true }
+rand = "0.5.1"
 
 [dev-dependencies]
 rustc-hash = "1.0"
