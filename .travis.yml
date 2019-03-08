@@ -34,9 +34,11 @@ matrix:
     - name: "x86_64-unknown-linux-gnu (Rust 1.29.0)"
       rust: stable
       env: TARGET=x86_64-unknown-linux-gnu
+    - name: "x86_64-unknown-linux-gnu (SSSE3)"
+      env: TARGET=x86_64-unknown-linux-gnu RUSTFLAGS="-C target-feature=+ssse3"
     - name: "i686-unknown-linux-gnu"
       env: TARGET=i686-unknown-linux-gnu CROSS=1
-    - name: "x86_64-apple-darwin"
+    - name: "x86_64-apple-darwin (SSSE3)"
       env: TARGET=x86_64-apple-darwin
       os: osx
       osx_image: xcode10

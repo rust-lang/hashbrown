@@ -114,21 +114,24 @@ impl Group {
     /// - `DELETED => EMPTY`
     /// - `FULL => DELETED`
     #[inline]
-    pub fn convert_special_to_empty_and_full_to_deleted(self) -> Self {
-        // Map high_bit = 1 (EMPTY or DELETED) to 1111_1111
-        // and high_bit = 0 (FULL) to 1000_0000
-        //
-        // Here's this logic expanded to concrete values:
-        //   let special = 0 > byte = 1111_1111 (true) or 0000_0000 (false)
-        //   1111_1111 | 1000_0000 = 1111_1111
-        //   0000_0000 | 1000_0000 = 1000_0000
+    pub fn convert_special_to_empty_and_full_to_deleted(self) -> Group {
         #[allow(
             clippy::cast_possible_wrap, // byte: 0x80_u8 as i8
         )]
         unsafe {
-            let zero = x86::_mm_setzero_si128();
-            let special = x86::_mm_cmpgt_epi8(zero, self.0);
-            Self(x86::_mm_or_si128(special, x86::_mm_set1_epi8(0x80_u8 as i8)))
+            // Map high_bit = 1 (EMPTY or DELETED) to 1111_1111
+            // and high_bit = 0 (FULL) to 1000_0000
+            //
+            // Here's this logic expanded to concrete values:
+            //   let special = 0 > byte = 1111_1111 (true) or 0000_0000 (false)
+            //   1111_1111 | 1000_0000 = 1111_1111
+            //   0000_0000 | 1000_0000 = 1000_0000
+            let msb = x86::_mm_set1_epi8(0x80u8 as i8);
+            #[cfg(not(target_feature = "ssse3"))]
+            let special = x86::_mm_cmpgt_epi8(x86::_mm_setzero_si128(), self.0);
+            #[cfg(target_feature = "ssse3")]
+            let special = x86::_mm_shuffle_epi8(x86::_mm_set1_epi8(0x7E_u8 as i8), self.0);
+            Group(x86::_mm_or_si128(special, msb))
         }
     }
 }

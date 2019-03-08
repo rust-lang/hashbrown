@@ -28,3 +28,13 @@ serde_test = "1.0"
 [features]
 default = []
 nightly = []
+
+[profile.bench]
+opt-level = 3
+debug = false
+rpath = false
+lto = "fat"
+debug-assertions = false
+codegen-units = 1
+incremental = false
+overflow-checks = false
