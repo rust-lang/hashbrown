@@ -219,7 +219,7 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     // Array of buckets
     let data = Layout::array::<T>(buckets).ok()?;
 
-    // Array of control bytes. This must be aligned to the group size.
+    // Array of control bytes. This can be of any alignment.
     //
     // We add `Group::WIDTH` control bytes at the end of the array which
     // replicate the bytes at the start of the array and thus avoids the need to
@@ -227,7 +227,7 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     //
     // There is no possible overflow here since buckets is a power of two and
     // Group::WIDTH is a small number.
-    let ctrl = unsafe { Layout::from_size_align_unchecked(buckets + Group::WIDTH, Group::WIDTH) };
+    let ctrl = unsafe { Layout::from_size_align_unchecked(buckets + Group::WIDTH, 1) };
 
     ctrl.extend(data).ok()
 }
@@ -240,7 +240,7 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     debug_assert!(buckets.is_power_of_two());
 
     // Manual layout calculation since Layout methods are not yet stable.
-    let data_align = usize::max(mem::align_of::<T>(), Group::WIDTH);
+    let data_align = mem::align_of::<T>();
     let data_offset = (buckets + Group::WIDTH).checked_add(data_align - 1)? & !(data_align - 1);
     let len = data_offset.checked_add(mem::size_of::<T>().checked_mul(buckets)?)?;
 
@@ -539,7 +539,7 @@ impl<T> RawTable<T> {
                     if unlikely(is_full(*self.ctrl(result))) {
                         debug_assert!(self.bucket_mask < Group::WIDTH);
                         debug_assert_ne!(pos, 0);
-                        return Group::load_aligned(self.ctrl(0))
+                        return Group::load(self.ctrl(0))
                             .match_empty_or_deleted()
                             .lowest_set_bit_nonzero();
                     } else {
@@ -671,9 +671,9 @@ impl<T> RawTable<T> {
             // control bytes to EMPTY. This effectively frees up all buckets
             // containing a DELETED entry.
             for i in (0..self.buckets()).step_by(Group::WIDTH) {
-                let group = Group::load_aligned(self.ctrl(i));
+                let group = Group::load(self.ctrl(i));
                 let group = group.convert_special_to_empty_and_full_to_deleted();
-                group.store_aligned(self.ctrl(i));
+                group.store(self.ctrl(i));
             }
 
             // Fix up the trailing control bytes. See the comments in set_ctrl
@@ -1079,7 +1079,7 @@ impl<T> RawIterRange<T> {
         let end = ctrl.add(len);
 
         // Load the first group and advance ctrl to point to the next group
-        let current_group = Group::load_aligned(ctrl).match_full();
+        let current_group = Group::load(ctrl).match_full();
         let next_ctrl = ctrl.add(Group::WIDTH);
 
         Self {
@@ -1170,7 +1170,7 @@ impl<T> Iterator for RawIterRange<T> {
                 // than the group size where the trailing control bytes are all
                 // EMPTY. On larger tables self.end is guaranteed to be aligned
                 // to the group size (since tables are power-of-two sized).
-                self.current_group = Group::load_aligned(self.next_ctrl).match_full();
+                self.current_group = Group::load(self.next_ctrl).match_full();
                 self.data = self.data.add(Group::WIDTH);
                 self.next_ctrl = self.next_ctrl.add(Group::WIDTH);
             }
