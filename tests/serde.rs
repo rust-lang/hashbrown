@@ -13,20 +13,14 @@ fn map_serde_tokens_empty() {
 #[test]
 fn map_serde_tokens() {
     let mut map = HashMap::new();
-    map.insert('b', 20);
     map.insert('a', 10);
-    map.insert('c', 30);
 
     assert_tokens(
         &map,
         &[
-            Token::Map { len: Some(3) },
+            Token::Map { len: Some(1) },
             Token::Char('a'),
             Token::I32(10),
-            Token::Char('c'),
-            Token::I32(30),
-            Token::Char('b'),
-            Token::I32(20),
             Token::MapEnd,
         ],
     );
@@ -42,17 +36,13 @@ fn set_serde_tokens_empty() {
 #[test]
 fn set_serde_tokens() {
     let mut set = HashSet::new();
-    set.insert(20);
     set.insert(10);
-    set.insert(30);
 
     assert_tokens(
         &set,
         &[
-            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(1) },
             Token::I32(10),
-            Token::I32(30),
-            Token::I32(20),
             Token::SeqEnd,
         ],
     );
