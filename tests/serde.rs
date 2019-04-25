@@ -23,10 +23,10 @@ fn map_serde_tokens() {
             Token::Map { len: Some(3) },
             Token::Char('a'),
             Token::I32(10),
-            Token::Char('b'),
-            Token::I32(20),
             Token::Char('c'),
             Token::I32(30),
+            Token::Char('b'),
+            Token::I32(20),
             Token::MapEnd,
         ],
     );
@@ -50,9 +50,9 @@ fn set_serde_tokens() {
         &set,
         &[
             Token::Seq { len: Some(3) },
-            Token::I32(20),
             Token::I32(10),
             Token::I32(30),
+            Token::I32(20),
             Token::SeqEnd,
         ],
     );
