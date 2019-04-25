@@ -114,14 +114,6 @@ fn special_is_empty(ctrl: u8) -> bool {
     ctrl & 0x01 != 0
 }
 
-/// Primary hash function, used to select the initial bucket to probe from.
-#[inline]
-#[allow(clippy::cast_possible_truncation)]
-fn h1(hash: u64) -> usize {
-    // On 32-bit platforms we simply ignore the higher hash bits.
-    hash as usize
-}
-
 /// Secondary hash function, saved in the low 7 bits of the control byte.
 #[inline]
 #[allow(clippy::cast_possible_truncation)]
@@ -129,7 +121,7 @@ fn h2(hash: u64) -> u8 {
     // Grab the top 7 bits of the hash. While the hash is normally a full 64-bit
     // value, some hash functions (such as FxHash) produce a usize result
     // instead, which means that the top 32 bits are 0 on 32-bit platforms.
-    let hash_len = usize::min(mem::size_of::<usize>(), mem::size_of::<u64>());
+    let hash_len = mem::size_of::<usize>();
     let top7 = hash >> (hash_len * 8 - 7);
     (top7 & 0x7f) as u8 // truncation
 }
@@ -327,9 +319,8 @@ impl<T> Bucket<T> {
 
 /// A raw hash table with an unsafe API.
 pub struct RawTable<T> {
-    // Mask to get an index from a hash value. The value is one less than the
-    // number of buckets in the table.
-    bucket_mask: usize,
+    // Log2 of the table capacity (which is always a power of 2)
+    capacity_log2: u8,
 
     // Pointer to the array of control bytes
     ctrl: NonNull<u8>,
@@ -358,7 +349,7 @@ impl<T> RawTable<T> {
         Self {
             data: NonNull::dangling(),
             ctrl: NonNull::from(&Group::static_empty()[0]),
-            bucket_mask: 0,
+            capacity_log2: 0,
             items: 0,
             growth_left: 0,
             marker: PhantomData,
@@ -380,11 +371,29 @@ impl<T> RawTable<T> {
         Ok(Self {
             data,
             ctrl,
-            bucket_mask: buckets - 1,
+            capacity_log2: if buckets == 0 { 0 } else { buckets.trailing_zeros() as u8},
             items: 0,
             growth_left: bucket_mask_to_capacity(buckets - 1),
             marker: PhantomData,
         })
+    }
+
+    // Mask to get an index from a hash value. The value is one less than the
+    // number of buckets in the table.
+    #[inline]
+    fn bucket_mask(&self) -> usize {
+        (1 << self.capacity_log2 as usize) - 1
+    }
+
+    // Number of bits to shift to extract the index from the hash.
+    #[inline]
+    fn bucket_shift(&self) -> u32 {
+        // The secondary hash in h2 takes the top 7 bits, this extracts the
+        // primary hash from the high bits just under those.
+        // The default FxHasher does not mix in low bits as well, so we only
+        // use high bits.
+        let hash_len = mem::size_of::<usize>();
+        8 * hash_len as u32 - 7 - self.capacity_log2 as u32
     }
 
     /// Attempts to allocate a new hash table with at least enough capacity
@@ -442,7 +451,7 @@ impl<T> RawTable<T> {
     /// Returns a pointer to an element in the table.
     #[inline]
     pub unsafe fn bucket(&self, index: usize) -> Bucket<T> {
-        debug_assert_ne!(self.bucket_mask, 0);
+        debug_assert_ne!(self.bucket_mask(), 0);
         debug_assert!(index < self.buckets());
         Bucket::from_base_index(self.data.as_ptr(), index)
     }
@@ -451,7 +460,7 @@ impl<T> RawTable<T> {
     #[inline]
     pub unsafe fn erase_no_drop(&mut self, item: &Bucket<T>) {
         let index = self.bucket_index(item);
-        let index_before = index.wrapping_sub(Group::WIDTH) & self.bucket_mask;
+        let index_before = index.wrapping_sub(Group::WIDTH) & self.bucket_mask();
         let empty_before = Group::load(self.ctrl(index_before)).match_empty();
         let empty_after = Group::load(self.ctrl(index)).match_empty();
 
@@ -481,8 +490,8 @@ impl<T> RawTable<T> {
     #[inline]
     fn probe_seq(&self, hash: u64) -> ProbeSeq {
         ProbeSeq {
-            bucket_mask: self.bucket_mask,
-            pos: h1(hash) & self.bucket_mask,
+            bucket_mask: self.bucket_mask(),
+            pos: (hash as usize).wrapping_shr(self.bucket_shift()) & self.bucket_mask(),
             stride: 0,
         }
     }
@@ -494,7 +503,7 @@ impl<T> RawTable<T> {
         // Replicate the first Group::WIDTH control bytes at the end of
         // the array without using a branch:
         // - If index >= Group::WIDTH then index == index2.
-        // - Otherwise index2 == self.bucket_mask + 1 + index.
+        // - Otherwise index2 == self.bucket_mask() + 1 + index.
         //
         // The very last replicated control byte is never actually read because
         // we mask the initial index for unaligned loads, but we write it
@@ -509,7 +518,7 @@ impl<T> RawTable<T> {
         // ---------------------------------------------
         // | [A] | [B] | [EMPTY] | [EMPTY] | [A] | [B] |
         // ---------------------------------------------
-        let index2 = ((index.wrapping_sub(Group::WIDTH)) & self.bucket_mask) + Group::WIDTH;
+        let index2 = ((index.wrapping_sub(Group::WIDTH)) & self.bucket_mask()) + Group::WIDTH;
 
         *self.ctrl(index) = ctrl;
         *self.ctrl(index2) = ctrl;
@@ -525,7 +534,7 @@ impl<T> RawTable<T> {
             unsafe {
                 let group = Group::load(self.ctrl(pos));
                 if let Some(bit) = group.match_empty_or_deleted().lowest_set_bit() {
-                    let result = (pos + bit) & self.bucket_mask;
+                    let result = (pos + bit) & self.bucket_mask();
 
                     // In tables smaller than the group width, trailing control
                     // bytes outside the range of the table are filled with
@@ -537,7 +546,7 @@ impl<T> RawTable<T> {
                     // slot (due to the load factor) before hitting the trailing
                     // control bytes (containing EMPTY).
                     if unlikely(is_full(*self.ctrl(result))) {
-                        debug_assert!(self.bucket_mask < Group::WIDTH);
+                        debug_assert!(self.bucket_mask() < Group::WIDTH);
                         debug_assert_ne!(pos, 0);
                         return Group::load_aligned(self.ctrl(0))
                             .match_empty_or_deleted()
@@ -562,7 +571,7 @@ impl<T> RawTable<T> {
             }
         }
         self.items = 0;
-        self.growth_left = bucket_mask_to_capacity(self.bucket_mask);
+        self.growth_left = bucket_mask_to_capacity(self.bucket_mask());
     }
 
     /// Removes all elements from the table without freeing the backing memory.
@@ -653,7 +662,7 @@ impl<T> RawTable<T> {
 
         // Rehash in-place without re-allocating if we have plenty of spare
         // capacity that is locked up due to DELETED entries.
-        if new_items < bucket_mask_to_capacity(self.bucket_mask) / 2 {
+        if new_items < bucket_mask_to_capacity(self.bucket_mask()) / 2 {
             self.rehash_in_place(hasher);
             Ok(())
         } else {
@@ -700,7 +709,7 @@ impl<T> RawTable<T> {
                         }
                     }
                 }
-                self_.growth_left = bucket_mask_to_capacity(self_.bucket_mask) - self_.items;
+                self_.growth_left = bucket_mask_to_capacity(self_.bucket_mask()) - self_.items;
             });
 
             // At this point, DELETED elements are elements that we haven't
@@ -724,7 +733,7 @@ impl<T> RawTable<T> {
                     // same unaligned group, then there is no benefit in moving
                     // it and we can just continue to the next item.
                     let probe_index = |pos: usize| {
-                        (pos.wrapping_sub(guard.probe_seq(hash).pos) & guard.bucket_mask)
+                        (pos.wrapping_sub(guard.probe_seq(hash).pos) & guard.bucket_mask())
                             / Group::WIDTH
                     };
                     if likely(probe_index(i) == probe_index(new_i)) {
@@ -755,7 +764,7 @@ impl<T> RawTable<T> {
                 }
             }
 
-            guard.growth_left = bucket_mask_to_capacity(guard.bucket_mask) - guard.items;
+            guard.growth_left = bucket_mask_to_capacity(guard.bucket_mask()) - guard.items;
             mem::forget(guard);
         }
     }
@@ -851,7 +860,7 @@ impl<T> RawTable<T> {
             for pos in self.probe_seq(hash) {
                 let group = Group::load(self.ctrl(pos));
                 for bit in group.match_byte(h2(hash)) {
-                    let index = (pos + bit) & self.bucket_mask;
+                    let index = (pos + bit) & self.bucket_mask();
                     let bucket = self.bucket(index);
                     if likely(eq(bucket.as_ref())) {
                         return Some(bucket);
@@ -885,20 +894,20 @@ impl<T> RawTable<T> {
     /// Returns the number of buckets in the table.
     #[inline]
     pub fn buckets(&self) -> usize {
-        self.bucket_mask + 1
+        self.bucket_mask() + 1
     }
 
     /// Returns the number of control bytes in the table.
     #[inline]
     fn num_ctrl_bytes(&self) -> usize {
-        self.bucket_mask + 1 + Group::WIDTH
+        self.bucket_mask() + 1 + Group::WIDTH
     }
 
     /// Returns whether this table points to the empty singleton with a capacity
     /// of 0.
     #[inline]
     fn is_empty_singleton(&self) -> bool {
-        self.bucket_mask == 0
+        self.capacity_log2 == 0
     }
 
     /// Returns an iterator over every element in the table. It is up to
