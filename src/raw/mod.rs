@@ -334,9 +334,6 @@ pub struct RawTable<T> {
     // Pointer to the array of control bytes
     ctrl: NonNull<u8>,
 
-    // Pointer to the array of buckets
-    data: NonNull<T>,
-
     // Number of elements that can be inserted before we need to grow the table
     growth_left: usize,
 
@@ -356,7 +353,6 @@ impl<T> RawTable<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
-            data: NonNull::dangling(),
             ctrl: NonNull::from(&Group::static_empty()[0]),
             bucket_mask: 0,
             items: 0,
@@ -373,12 +369,10 @@ impl<T> RawTable<T> {
         buckets: usize,
         fallability: Fallibility,
     ) -> Result<Self, CollectionAllocErr> {
-        let (layout, data_offset) =
+        let (layout, _) =
             calculate_layout::<T>(buckets).ok_or_else(|| fallability.capacity_overflow())?;
         let ctrl = NonNull::new(alloc(layout)).ok_or_else(|| fallability.alloc_err(layout))?;
-        let data = NonNull::new_unchecked(ctrl.as_ptr().add(data_offset) as *mut T);
         Ok(Self {
-            data,
             ctrl,
             bucket_mask: buckets - 1,
             items: 0,
@@ -422,13 +416,19 @@ impl<T> RawTable<T> {
         dealloc(self.ctrl.as_ptr(), layout);
     }
 
+    // Pointer to the array of buckets
+    fn data(&self) -> NonNull<T> {
+        let (_, data_offset) = calculate_layout::<T>(self.buckets()).unwrap();
+        unsafe { NonNull::new_unchecked(self.ctrl.as_ptr().add(data_offset) as *mut T) }
+    }
+
     /// Returns the index of a bucket from a `Bucket`.
     #[inline]
     unsafe fn bucket_index(&self, bucket: &Bucket<T>) -> usize {
         if mem::size_of::<T>() == 0 {
             bucket.ptr as usize
         } else {
-            offset_from(bucket.ptr, self.data.as_ptr())
+            offset_from(bucket.ptr, self.data().as_ptr())
         }
     }
 
@@ -444,7 +444,7 @@ impl<T> RawTable<T> {
     pub unsafe fn bucket(&self, index: usize) -> Bucket<T> {
         debug_assert_ne!(self.bucket_mask, 0);
         debug_assert!(index < self.buckets());
-        Bucket::from_base_index(self.data.as_ptr(), index)
+        Bucket::from_base_index(self.data().as_ptr(), index)
     }
 
     /// Erases an element from the table without dropping it.
@@ -907,7 +907,7 @@ impl<T> RawTable<T> {
     /// struct, we have to make the `iter` method unsafe.
     #[inline]
     pub unsafe fn iter(&self) -> RawIter<T> {
-        let data = Bucket::from_base_index(self.data.as_ptr(), 0);
+        let data = Bucket::from_base_index(self.data().as_ptr(), 0);
         RawIter {
             iter: RawIterRange::new(self.ctrl.as_ptr(), data, self.buckets()),
             items: self.items,
