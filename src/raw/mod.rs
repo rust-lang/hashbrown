@@ -213,7 +213,7 @@ fn bucket_mask_to_capacity(bucket_mask: usize) -> usize {
 /// Returns `None` if an overflow occurs.
 #[inline]
 #[cfg(feature = "nightly")]
-fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
+fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     debug_assert!(buckets.is_power_of_two());
 
     // Misc fields of the map
@@ -232,23 +232,26 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
     // Array of buckets
     let data = Layout::array::<T>(buckets).ok()?;
 
-    let (temp_layout, ctrl_offset) = header.extend(ctrl).ok()?;
+    let (temp_layout, _ctrl_offset) = header.extend(ctrl).ok()?;
     let (final_layout, data_offset) = temp_layout.extend(data).ok()?;
 
-    Some((final_layout, ctrl_offset, data_offset))
+    Some((final_layout, data_offset))
 }
 
 // Returns a Layout which describes the allocation required for a hash table,
 // and the offset of the buckets in the allocation.
 #[inline]
 #[cfg(not(feature = "nightly"))]
-fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
+fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     debug_assert!(buckets.is_power_of_two());
 
     // Manual layout calculation since Layout methods are not yet stable.
     let data_align = mem::align_of::<T>();
-    let ctrl_align = usize::max(Group::WIDTH, data_align);
-    let header_align = usize::max(mem::align_of::<Header<T>>(), ctrl_align);
+    let ctrl_align = Group::WIDTH;
+    let header_align = usize::max(
+        usize::max(mem::align_of::<Header<T>>(), ctrl_align),
+        data_align,
+    );
 
     let data_size = mem::size_of::<T>().checked_mul(buckets)?;
     let ctrl_size = buckets + Group::WIDTH;
@@ -260,9 +263,16 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
 
     Some((
         unsafe { Layout::from_size_align_unchecked(len, header_align) },
-        ctrl_offset,
         data_offset,
     ))
+}
+
+#[inline]
+fn ctrl_offset<T>() -> usize {
+    let header_size = mem::size_of::<Header<T>>();
+    let ctrl_align = Group::WIDTH;
+    let mask = ctrl_align - 1;
+    (header_size + mask) & !mask
 }
 
 #[inline]
@@ -365,9 +375,6 @@ pub struct Header<T> {
     // number of buckets in the table.
     bucket_mask: usize,
 
-    // Pointer to the array of control bytes
-    ctrl: *const u8,
-
     // Pointer to the array of buckets
     data: *const T,
 
@@ -378,22 +385,31 @@ pub struct Header<T> {
     items: usize,
 }
 
-static EMPTY_SINGLETON: Header<()> = {
+static EMPTY_SINGLETON: &'static Header<()> = {
     union AlignedBytes {
         _align: Group,
         bytes: [u8; Group::WIDTH],
     };
-    static ALIGNED_BYTES: AlignedBytes = AlignedBytes {
-        bytes: [EMPTY; Group::WIDTH],
+
+    #[repr(C)]
+    struct HeaderWithCtrl {
+        header: Header<()>,
+        bytes: AlignedBytes,
+    }
+
+    static ALIGNED_HEADER_WITH_CTRL: HeaderWithCtrl = HeaderWithCtrl {
+        header: Header {
+            data: core::ptr::null(),
+            bucket_mask: 0,
+            items: 0,
+            growth_left: 0,
+        },
+        bytes: AlignedBytes {
+            bytes: [EMPTY; Group::WIDTH],
+        },
     };
 
-    Header {
-        data: core::ptr::null(),
-        ctrl: unsafe { &ALIGNED_BYTES.bytes as *const u8 },
-        bucket_mask: 0,
-        items: 0,
-        growth_left: 0,
-    }
+    &ALIGNED_HEADER_WITH_CTRL.header
 };
 
 unsafe impl<T: Sync> Sync for Header<T> {}
@@ -407,7 +423,7 @@ impl<T> RawTable<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
-            header: NonNull::from(&EMPTY_SINGLETON).cast(),
+            header: NonNull::from(EMPTY_SINGLETON).cast(),
             marker: PhantomData,
         }
     }
@@ -420,16 +436,14 @@ impl<T> RawTable<T> {
         buckets: usize,
         fallability: Fallibility,
     ) -> Result<Self, CollectionAllocErr> {
-        let (layout, ctrl_offset, data_offset) =
+        let (layout, data_offset) =
             calculate_layout::<T>(buckets).ok_or_else(|| fallability.capacity_overflow())?;
 
         let header = NonNull::new(alloc(layout)).ok_or_else(|| fallability.alloc_err(layout))?;
-        let ctrl = header.as_ptr().add(ctrl_offset) as *mut u8;
         let data = header.as_ptr().add(data_offset) as *mut T;
 
         let header = header.cast();
         *header.as_ptr() = Header {
-            ctrl,
             data,
             bucket_mask: buckets - 1,
             items: 0,
@@ -472,7 +486,7 @@ impl<T> RawTable<T> {
     /// Deallocates the table without dropping any entries.
     #[inline]
     unsafe fn free_buckets(&mut self) {
-        let (layout, _, _) =
+        let (layout, _) =
             calculate_layout::<T>(self.buckets()).unwrap_or_else(|| hint::unreachable_unchecked());
         dealloc(self.header.as_ptr() as *mut u8, layout);
     }
@@ -506,7 +520,7 @@ impl<T> RawTable<T> {
     /// Returns a pointer to the ctrl array
     #[inline]
     fn ctrl_ptr(&self) -> *mut u8 {
-        self.header().ctrl as *mut u8
+        unsafe { (self.header.as_ptr() as *mut u8).add(ctrl_offset::<T>()) }
     }
 
     #[inline]
@@ -1000,7 +1014,7 @@ impl<T> RawTable<T> {
     /// of 0.
     #[inline]
     fn is_empty_singleton(&self) -> bool {
-        self.header() as *const Header<T> == &EMPTY_SINGLETON as *const _ as *const Header<T>
+        self.header() as *const Header<T> == EMPTY_SINGLETON as *const _ as *const Header<T>
     }
 
     /// Returns an iterator over every element in the table. It is up to
@@ -1037,7 +1051,7 @@ impl<T> RawTable<T> {
         let alloc = if self.is_empty_singleton() {
             None
         } else {
-            let (layout, _, _) = calculate_layout::<T>(self.buckets())
+            let (layout, _) = calculate_layout::<T>(self.buckets())
                 .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() });
             Some((self.header.cast(), layout))
         };
