@@ -19,26 +19,10 @@ pub const BITMASK_MASK: BitMaskWord = 0xffff;
 pub struct Group(x86::__m128i);
 
 // FIXME: https://github.com/rust-lang/rust-clippy/issues/3859
-#[allow(clippy::use_self)] 
+#[allow(clippy::use_self)]
 impl Group {
     /// Number of bytes in the group.
     pub const WIDTH: usize = mem::size_of::<Self>();
-
-    /// Returns a full group of empty bytes, suitable for use as the initial
-    /// value for an empty hash table.
-    ///
-    /// This is guaranteed to be aligned to the group size.
-    #[inline]
-    pub fn static_empty() -> &'static [u8] {
-        union AlignedBytes {
-            _align: Group,
-            bytes: [u8; Group::WIDTH],
-        };
-        const ALIGNED_BYTES: AlignedBytes = AlignedBytes {
-            bytes: [EMPTY; Group::WIDTH],
-        };
-        unsafe { &ALIGNED_BYTES.bytes }
-    }
 
     /// Loads a group of bytes starting at the given address.
     #[inline]

@@ -213,11 +213,11 @@ fn bucket_mask_to_capacity(bucket_mask: usize) -> usize {
 /// Returns `None` if an overflow occurs.
 #[inline]
 #[cfg(feature = "nightly")]
-fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
+fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
     debug_assert!(buckets.is_power_of_two());
 
-    // Array of buckets
-    let data = Layout::array::<T>(buckets).ok()?;
+    // Misc fields of the map
+    let header = Layout::new::<Header<T>>();
 
     // Array of control bytes. This must be aligned to the group size.
     //
@@ -229,25 +229,53 @@ fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
     // Group::WIDTH is a small number.
     let ctrl = unsafe { Layout::from_size_align_unchecked(buckets + Group::WIDTH, Group::WIDTH) };
 
-    ctrl.extend(data).ok()
+    // Array of buckets
+    let data = Layout::array::<T>(buckets).ok()?;
+
+    let (temp_layout, ctrl_offset) = header.extend(ctrl).ok()?;
+    let (final_layout, data_offset) = temp_layout.extend(data).ok()?;
+
+    Some((final_layout, ctrl_offset, data_offset))
 }
 
 // Returns a Layout which describes the allocation required for a hash table,
 // and the offset of the buckets in the allocation.
 #[inline]
 #[cfg(not(feature = "nightly"))]
-fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize)> {
+fn calculate_layout<T>(buckets: usize) -> Option<(Layout, usize, usize)> {
     debug_assert!(buckets.is_power_of_two());
 
     // Manual layout calculation since Layout methods are not yet stable.
-    let data_align = usize::max(mem::align_of::<T>(), Group::WIDTH);
-    let data_offset = (buckets + Group::WIDTH).checked_add(data_align - 1)? & !(data_align - 1);
-    let len = data_offset.checked_add(mem::size_of::<T>().checked_mul(buckets)?)?;
+    let data_align = mem::align_of::<T>();
+    let ctrl_align = usize::max(Group::WIDTH, data_align);
+    let header_align = usize::max(mem::align_of::<Header<T>>(), ctrl_align);
+
+    let data_size = mem::size_of::<T>().checked_mul(buckets)?;
+    let ctrl_size = buckets + Group::WIDTH;
+    let header_size = mem::size_of::<Header<T>>();
+
+    let ctrl_offset = round_size_to_align(header_size, ctrl_align)?;
+    let data_offset = round_size_to_align(ctrl_offset.checked_add(ctrl_size)?, data_align)?;
+    let len = data_offset.checked_add(data_size)?;
 
     Some((
-        unsafe { Layout::from_size_align_unchecked(len, data_align) },
+        unsafe { Layout::from_size_align_unchecked(len, header_align) },
+        ctrl_offset,
         data_offset,
     ))
+}
+
+#[inline]
+#[cfg(not(feature = "nightly"))]
+fn round_size_to_align(size: usize, align: usize) -> Option<usize> {
+    debug_assert!(align.is_power_of_two());
+    // Align is a power of two, so it has a single set bit. A multiple of align
+    // must have at least as many trailing zeroes. Subtracting 1 from align gets
+    // us all 1's where those trailing zeroes should be, so `x & !(align - 1)`
+    // clears those bits, rounding down to the nearest multiple of align. But
+    // we want to round up, so we add `align - 1` first, which makes
+    // rounding-down into rounding-up.
+    Some(size.checked_add(align - 1)? & !(align - 1))
 }
 
 /// A reference to a hash table bucket containing a `T`.
@@ -327,25 +355,48 @@ impl<T> Bucket<T> {
 
 /// A raw hash table with an unsafe API.
 pub struct RawTable<T> {
+    header: NonNull<Header<T>>,
+    marker: PhantomData<T>,
+}
+
+/// The header of a RawTable's allocation (or the EMPTY_SINGLETON)
+pub struct Header<T> {
     // Mask to get an index from a hash value. The value is one less than the
     // number of buckets in the table.
     bucket_mask: usize,
 
     // Pointer to the array of control bytes
-    ctrl: NonNull<u8>,
+    ctrl: *const u8,
 
     // Pointer to the array of buckets
-    data: NonNull<T>,
+    data: *const T,
 
     // Number of elements that can be inserted before we need to grow the table
     growth_left: usize,
 
     // Number of elements in the table, only really used by len()
     items: usize,
-
-    // Tell dropck that we own instances of T.
-    marker: PhantomData<T>,
 }
+
+static EMPTY_SINGLETON: Header<()> = {
+    union AlignedBytes {
+        _align: Group,
+        bytes: [u8; Group::WIDTH],
+    };
+    static ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+        bytes: [EMPTY; Group::WIDTH],
+    };
+
+    Header {
+        data: core::ptr::null(),
+        ctrl: unsafe { &ALIGNED_BYTES.bytes as *const u8 },
+        bucket_mask: 0,
+        items: 0,
+        growth_left: 0,
+    }
+};
+
+unsafe impl<T: Sync> Sync for Header<T> {}
 
 impl<T> RawTable<T> {
     /// Creates a new empty hash table without allocating any memory.
@@ -356,11 +407,7 @@ impl<T> RawTable<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
-            data: NonNull::dangling(),
-            ctrl: NonNull::from(&Group::static_empty()[0]),
-            bucket_mask: 0,
-            items: 0,
-            growth_left: 0,
+            header: NonNull::from(&EMPTY_SINGLETON).cast(),
             marker: PhantomData,
         }
     }
@@ -373,16 +420,24 @@ impl<T> RawTable<T> {
         buckets: usize,
         fallability: Fallibility,
     ) -> Result<Self, CollectionAllocErr> {
-        let (layout, data_offset) =
+        let (layout, ctrl_offset, data_offset) =
             calculate_layout::<T>(buckets).ok_or_else(|| fallability.capacity_overflow())?;
-        let ctrl = NonNull::new(alloc(layout)).ok_or_else(|| fallability.alloc_err(layout))?;
-        let data = NonNull::new_unchecked(ctrl.as_ptr().add(data_offset) as *mut T);
-        Ok(Self {
-            data,
+
+        let header = NonNull::new(alloc(layout)).ok_or_else(|| fallability.alloc_err(layout))?;
+        let ctrl = header.as_ptr().add(ctrl_offset) as *mut u8;
+        let data = header.as_ptr().add(data_offset) as *mut T;
+
+        let header = header.cast();
+        *header.as_ptr() = Header {
             ctrl,
+            data,
             bucket_mask: buckets - 1,
             items: 0,
             growth_left: bucket_mask_to_capacity(buckets - 1),
+        };
+
+        Ok(Self {
+            header: header,
             marker: PhantomData,
         })
     }
@@ -417,9 +472,9 @@ impl<T> RawTable<T> {
     /// Deallocates the table without dropping any entries.
     #[inline]
     unsafe fn free_buckets(&mut self) {
-        let (layout, _) =
+        let (layout, _, _) =
             calculate_layout::<T>(self.buckets()).unwrap_or_else(|| hint::unreachable_unchecked());
-        dealloc(self.ctrl.as_ptr(), layout);
+        dealloc(self.header.as_ptr() as *mut u8, layout);
     }
 
     /// Returns the index of a bucket from a `Bucket`.
@@ -428,30 +483,67 @@ impl<T> RawTable<T> {
         if mem::size_of::<T>() == 0 {
             bucket.ptr as usize
         } else {
-            offset_from(bucket.ptr, self.data.as_ptr())
+            offset_from(bucket.ptr, self.data_ptr())
         }
+    }
+
+    #[inline]
+    fn header(&self) -> &Header<T> {
+        unsafe { &*self.header.as_ptr() }
+    }
+
+    #[inline]
+    unsafe fn header_mut(&mut self) -> &mut Header<T> {
+        &mut *self.header.as_ptr()
+    }
+
+    /// Returns a pointer to the data array
+    #[inline]
+    fn data_ptr(&self) -> *mut T {
+        self.header().data as *mut T
+    }
+
+    /// Returns a pointer to the ctrl array
+    #[inline]
+    fn ctrl_ptr(&self) -> *mut u8 {
+        self.header().ctrl as *mut u8
+    }
+
+    #[inline]
+    fn bucket_mask(&self) -> usize {
+        self.header().bucket_mask
+    }
+
+    #[inline]
+    fn growth_left(&self) -> usize {
+        self.header().growth_left
+    }
+
+    #[inline]
+    fn items(&self) -> usize {
+        self.header().items
     }
 
     /// Returns a pointer to a control byte.
     #[inline]
     unsafe fn ctrl(&self, index: usize) -> *mut u8 {
         debug_assert!(index < self.num_ctrl_bytes());
-        self.ctrl.as_ptr().add(index)
+        self.ctrl_ptr().add(index)
     }
 
     /// Returns a pointer to an element in the table.
     #[inline]
     pub unsafe fn bucket(&self, index: usize) -> Bucket<T> {
-        debug_assert_ne!(self.bucket_mask, 0);
+        debug_assert_ne!(self.bucket_mask(), 0);
         debug_assert!(index < self.buckets());
-        Bucket::from_base_index(self.data.as_ptr(), index)
+        Bucket::from_base_index(self.data_ptr(), index)
     }
 
     /// Erases an element from the table without dropping it.
     #[inline]
     pub unsafe fn erase_no_drop(&mut self, item: &Bucket<T>) {
         let index = self.bucket_index(item);
-        let index_before = index.wrapping_sub(Group::WIDTH) & self.bucket_mask;
+        let index_before = index.wrapping_sub(Group::WIDTH) & self.bucket_mask();
         let empty_before = Group::load(self.ctrl(index_before)).match_empty();
         let empty_after = Group::load(self.ctrl(index)).match_empty();
 
@@ -466,11 +558,11 @@ impl<T> RawTable<T> {
         let ctrl = if empty_before.leading_zeros() + empty_after.trailing_zeros() >= Group::WIDTH {
             DELETED
         } else {
-            self.growth_left += 1;
+            self.header_mut().growth_left += 1;
             EMPTY
         };
         self.set_ctrl(index, ctrl);
-        self.items -= 1;
+        self.header_mut().items -= 1;
     }
 
     /// Returns an iterator for a probe sequence on the table.
@@ -481,8 +573,8 @@ impl<T> RawTable<T> {
     #[inline]
     fn probe_seq(&self, hash: u64) -> ProbeSeq {
         ProbeSeq {
-            bucket_mask: self.bucket_mask,
-            pos: h1(hash) & self.bucket_mask,
+            bucket_mask: self.bucket_mask(),
+            pos: h1(hash) & self.bucket_mask(),
             stride: 0,
         }
     }
@@ -509,7 +601,7 @@ impl<T> RawTable<T> {
         // ---------------------------------------------
         // | [A] | [B] | [EMPTY] | [EMPTY] | [A] | [B] |
         // ---------------------------------------------
-        let index2 = ((index.wrapping_sub(Group::WIDTH)) & self.bucket_mask) + Group::WIDTH;
+        let index2 = ((index.wrapping_sub(Group::WIDTH)) & self.bucket_mask()) + Group::WIDTH;
 
         *self.ctrl(index) = ctrl;
         *self.ctrl(index2) = ctrl;
@@ -525,7 +617,7 @@ impl<T> RawTable<T> {
             unsafe {
                 let group = Group::load(self.ctrl(pos));
                 if let Some(bit) = group.match_empty_or_deleted().lowest_set_bit() {
-                    let result = (pos + bit) & self.bucket_mask;
+                    let result = (pos + bit) & self.bucket_mask();
 
                     // In tables smaller than the group width, trailing control
                     // bytes outside the range of the table are filled with
@@ -537,7 +629,7 @@ impl<T> RawTable<T> {
                     // slot (due to the load factor) before hitting the trailing
                     // control bytes (containing EMPTY).
                     if unlikely(is_full(*self.ctrl(result))) {
-                        debug_assert!(self.bucket_mask < Group::WIDTH);
+                        debug_assert!(self.bucket_mask() < Group::WIDTH);
                         debug_assert_ne!(pos, 0);
                         return Group::load_aligned(self.ctrl(0))
                             .match_empty_or_deleted()
@@ -556,13 +648,15 @@ impl<T> RawTable<T> {
     /// Marks all table buckets as empty without dropping their contents.
     #[inline]
     pub fn clear_no_drop(&mut self) {
-        if !self.is_empty_singleton() {
-            unsafe {
-                self.ctrl(0).write_bytes(EMPTY, self.num_ctrl_bytes());
+        unsafe {
+            if self.is_empty_singleton() {
+                return;
             }
+            self.ctrl(0).write_bytes(EMPTY, self.num_ctrl_bytes());
+            let header = self.header_mut();
+            header.items = 0;
+            header.growth_left = bucket_mask_to_capacity(header.bucket_mask);
         }
-        self.items = 0;
-        self.growth_left = bucket_mask_to_capacity(self.bucket_mask);
     }
 
     /// Removes all elements from the table without freeing the backing memory.
@@ -585,7 +679,7 @@ impl<T> RawTable<T> {
     pub fn shrink_to(&mut self, min_size: usize, hasher: impl Fn(&T) -> u64) {
         // Calculate the minimal number of elements that we need to reserve
         // space for.
-        let min_size = usize::max(self.items, min_size);
+        let min_size = usize::max(self.items(), min_size);
         if min_size == 0 {
             *self = Self::new();
             return;
@@ -603,7 +697,7 @@ impl<T> RawTable<T> {
         // If we have more buckets than we need, shrink the table.
         if min_buckets < self.buckets() {
             // Fast path if the table is empty
-            if self.items == 0 {
+            if self.items() == 0 {
                 *self = Self::with_capacity(min_size)
             } else {
                 self.resize(min_size, hasher, Fallibility::Infallible)
@@ -616,7 +710,7 @@ impl<T> RawTable<T> {
     /// without reallocation.
     #[inline]
     pub fn reserve(&mut self, additional: usize, hasher: impl Fn(&T) -> u64) {
-        if additional > self.growth_left {
+        if additional > self.growth_left() {
             self.reserve_rehash(additional, hasher, Fallibility::Infallible)
                 .unwrap_or_else(|_| unsafe { hint::unreachable_unchecked() });
         }
@@ -630,7 +724,7 @@ impl<T> RawTable<T> {
         additional: usize,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<(), CollectionAllocErr> {
-        if additional > self.growth_left {
+        if additional > self.growth_left() {
             self.reserve_rehash(additional, hasher, Fallibility::Fallible)
         } else {
             Ok(())
@@ -647,13 +741,13 @@ impl<T> RawTable<T> {
         fallability: Fallibility,
     ) -> Result<(), CollectionAllocErr> {
         let new_items = self
-            .items
+            .items()
             .checked_add(additional)
             .ok_or_else(|| fallability.capacity_overflow())?;
 
         // Rehash in-place without re-allocating if we have plenty of spare
         // capacity that is locked up due to DELETED entries.
-        if new_items < bucket_mask_to_capacity(self.bucket_mask) / 2 {
+        if new_items < bucket_mask_to_capacity(self.bucket_mask()) / 2 {
             self.rehash_in_place(hasher);
             Ok(())
         } else {
@@ -696,11 +790,12 @@ impl<T> RawTable<T> {
                         if *self_.ctrl(i) == DELETED {
                             self_.set_ctrl(i, EMPTY);
                             self_.bucket(i).drop();
-                            self_.items -= 1;
+                            self_.header_mut().items -= 1;
                         }
                     }
                 }
-                self_.growth_left = bucket_mask_to_capacity(self_.bucket_mask) - self_.items;
+                self_.header_mut().growth_left =
+                    bucket_mask_to_capacity(self_.bucket_mask()) - self_.items();
             });
 
             // At this point, DELETED elements are elements that we haven't
@@ -724,7 +819,7 @@ impl<T> RawTable<T> {
                     // same unaligned group, then there is no benefit in moving
                     // it and we can just continue to the next item.
                     let probe_index = |pos: usize| {
-                        (pos.wrapping_sub(guard.probe_seq(hash).pos) & guard.bucket_mask)
+                        (pos.wrapping_sub(guard.probe_seq(hash).pos) & guard.bucket_mask())
                             / Group::WIDTH
                     };
                     if likely(probe_index(i) == probe_index(new_i)) {
@@ -755,7 +850,8 @@ impl<T> RawTable<T> {
                 }
             }
 
-            guard.growth_left = bucket_mask_to_capacity(guard.bucket_mask) - guard.items;
+            let header = guard.header_mut();
+            header.growth_left = bucket_mask_to_capacity(header.bucket_mask) - header.items;
             mem::forget(guard);
         }
     }
@@ -769,12 +865,18 @@ impl<T> RawTable<T> {
         fallability: Fallibility,
     ) -> Result<(), CollectionAllocErr> {
         unsafe {
-            debug_assert!(self.items <= capacity);
+            debug_assert!(self.items() <= capacity);
 
             // Allocate and initialize the new table.
             let mut new_table = Self::try_with_capacity(capacity, fallability)?;
-            new_table.growth_left -= self.items;
-            new_table.items = self.items;
+            if new_table.is_empty_singleton() {
+                mem::swap(self, &mut new_table);
+                return Ok(());
+            }
+
+            let new_header = new_table.header_mut();
+            new_header.growth_left -= self.items();
+            new_header.items = self.items();
 
             // The hash function may panic, in which case we simply free the new
             // table without dropping any elements that may have been copied into
@@ -835,11 +937,11 @@ impl<T> RawTable<T> {
             // If we are replacing a DELETED entry then we don't need to update
             // the load counter.
             let old_ctrl = *self.ctrl(index);
-            self.growth_left -= special_is_empty(old_ctrl) as usize;
+            self.header_mut().growth_left -= special_is_empty(old_ctrl) as usize;
 
             self.set_ctrl(index, h2(hash));
             bucket.write(value);
-            self.items += 1;
+            self.header_mut().items += 1;
             bucket
         }
     }
@@ -851,7 +953,7 @@ impl<T> RawTable<T> {
             for pos in self.probe_seq(hash) {
                 let group = Group::load(self.ctrl(pos));
                 for bit in group.match_byte(h2(hash)) {
-                    let index = (pos + bit) & self.bucket_mask;
+                    let index = (pos + bit) & self.bucket_mask();
                     let bucket = self.bucket(index);
                     if likely(eq(bucket.as_ref())) {
                         return Some(bucket);
@@ -873,32 +975,32 @@ impl<T> RawTable<T> {
     /// more, but is guaranteed to be able to hold at least this many.
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.items + self.growth_left
+        self.items() + self.growth_left()
     }
 
     /// Returns the number of elements in the table.
     #[inline]
     pub fn len(&self) -> usize {
-        self.items
+        self.items()
     }
 
     /// Returns the number of buckets in the table.
     #[inline]
     pub fn buckets(&self) -> usize {
-        self.bucket_mask + 1
+        self.bucket_mask() + 1
     }
 
     /// Returns the number of control bytes in the table.
     #[inline]
     fn num_ctrl_bytes(&self) -> usize {
-        self.bucket_mask + 1 + Group::WIDTH
+        self.bucket_mask() + 1 + Group::WIDTH
     }
 
     /// Returns whether this table points to the empty singleton with a capacity
     /// of 0.
     #[inline]
     fn is_empty_singleton(&self) -> bool {
-        self.bucket_mask == 0
+        self.header() as *const Header<T> == &EMPTY_SINGLETON as *const _ as *const Header<T>
     }
 
     /// Returns an iterator over every element in the table. It is up to
@@ -907,10 +1009,10 @@ impl<T> RawTable<T> {
     /// struct, we have to make the `iter` method unsafe.
     #[inline]
     pub unsafe fn iter(&self) -> RawIter<T> {
-        let data = Bucket::from_base_index(self.data.as_ptr(), 0);
+        let data = Bucket::from_base_index(self.data_ptr(), 0);
         RawIter {
-            iter: RawIterRange::new(self.ctrl.as_ptr(), data, self.buckets()),
-            items: self.items,
+            iter: RawIterRange::new(self.ctrl_ptr(), data, self.buckets()),
+            items: self.items(),
         }
     }
 
@@ -935,9 +1037,9 @@ impl<T> RawTable<T> {
         let alloc = if self.is_empty_singleton() {
             None
         } else {
-            let (layout, _) = calculate_layout::<T>(self.buckets())
+            let (layout, _, _) = calculate_layout::<T>(self.buckets())
                 .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() });
-            Some((self.ctrl.cast(), layout))
+            Some((self.header.cast(), layout))
         };
         mem::forget(self);
         alloc
@@ -990,9 +1092,10 @@ impl<T: Clone> Clone for RawTable<T> {
                     mem::forget(guard);
                 }
 
+                let new_header = new_table.header_mut();
                 // Return the newly created table.
-                new_table.items = self.items;
-                new_table.growth_left = self.growth_left;
+                new_header.items = self.items();
+                new_header.growth_left = self.growth_left();
                 ManuallyDrop::into_inner(new_table)
             }
         }
