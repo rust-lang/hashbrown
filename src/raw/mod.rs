@@ -365,7 +365,7 @@ impl<T> Bucket<T> {
 
 /// A raw hash table with an unsafe API.
 pub struct RawTable<T> {
-    header: NonNull<Header<T>>,
+    ctrl_ptr: NonNull<u8>,
     marker: PhantomData<T>,
 }
 
@@ -385,7 +385,7 @@ pub struct Header<T> {
     items: usize,
 }
 
-static EMPTY_SINGLETON: &'static Header<()> = {
+static EMPTY_SINGLETON: &'static u8 = {
     union AlignedBytes {
         _align: Group,
         bytes: [u8; Group::WIDTH],
@@ -409,7 +409,7 @@ static EMPTY_SINGLETON: &'static Header<()> = {
         },
     };
 
-    &ALIGNED_HEADER_WITH_CTRL.header
+    unsafe { &ALIGNED_HEADER_WITH_CTRL.bytes.bytes[0] }
 };
 
 unsafe impl<T: Sync> Sync for Header<T> {}
@@ -423,7 +423,7 @@ impl<T> RawTable<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
-            header: NonNull::from(EMPTY_SINGLETON).cast(),
+            ctrl_ptr: NonNull::from(EMPTY_SINGLETON),
             marker: PhantomData,
         }
     }
@@ -441,6 +441,7 @@ impl<T> RawTable<T> {
 
         let header = NonNull::new(alloc(layout)).ok_or_else(|| fallability.alloc_err(layout))?;
         let data = header.as_ptr().add(data_offset) as *mut T;
+        let ctrl_ptr = NonNull::new_unchecked(header.as_ptr().add(ctrl_offset::<T>()));
 
         let header = header.cast();
         *header.as_ptr() = Header {
@@ -451,7 +452,7 @@ impl<T> RawTable<T> {
         };
 
         Ok(Self {
-            header: header,
+            ctrl_ptr,
             marker: PhantomData,
         })
     }
@@ -488,7 +489,7 @@ impl<T> RawTable<T> {
     unsafe fn free_buckets(&mut self) {
         let (layout, _) =
             calculate_layout::<T>(self.buckets()).unwrap_or_else(|| hint::unreachable_unchecked());
-        dealloc(self.header.as_ptr() as *mut u8, layout);
+        dealloc(self.header_mut() as *mut _ as *mut u8, layout);
     }
 
     /// Returns the index of a bucket from a `Bucket`.
@@ -503,12 +504,12 @@ impl<T> RawTable<T> {
 
     #[inline]
     fn header(&self) -> &Header<T> {
-        unsafe { &*self.header.as_ptr() }
+        unsafe { &*(self.ctrl_ptr.as_ptr().sub(ctrl_offset::<T>()) as *mut Header<T>) }
     }
 
     #[inline]
     unsafe fn header_mut(&mut self) -> &mut Header<T> {
-        &mut *self.header.as_ptr()
+        &mut *(self.ctrl_ptr.as_ptr().sub(ctrl_offset::<T>()) as *mut Header<T>)
     }
 
     /// Returns a pointer to the data array
@@ -520,7 +521,7 @@ impl<T> RawTable<T> {
     /// Returns a pointer to the ctrl array
     #[inline]
     fn ctrl_ptr(&self) -> *mut u8 {
-        unsafe { (self.header.as_ptr() as *mut u8).add(ctrl_offset::<T>()) }
+        self.ctrl_ptr.as_ptr()
     }
 
     #[inline]
@@ -1014,7 +1015,7 @@ impl<T> RawTable<T> {
     /// of 0.
     #[inline]
     fn is_empty_singleton(&self) -> bool {
-        self.header() as *const Header<T> == EMPTY_SINGLETON as *const _ as *const Header<T>
+        self.ctrl_ptr.as_ptr() as *const u8 == EMPTY_SINGLETON as *const u8
     }
 
     /// Returns an iterator over every element in the table. It is up to
@@ -1053,7 +1054,7 @@ impl<T> RawTable<T> {
         } else {
             let (layout, _) = calculate_layout::<T>(self.buckets())
                 .unwrap_or_else(|| unsafe { hint::unreachable_unchecked() });
-            Some((self.header.cast(), layout))
+            Some((NonNull::from(self.header()).cast(), layout))
         };
         mem::forget(self);
         alloc
