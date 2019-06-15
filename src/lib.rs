@@ -13,6 +13,7 @@
 #![cfg_attr(
     feature = "nightly",
     feature(
+        alloc,
         alloc_layout_extra,
         allocator_api,
         ptr_offset_from,
