@@ -190,6 +190,7 @@ pub enum DefaultHashBuilder {}
 ///     // use the values stored in map
 /// }
 /// ```
+#[repr(C)]
 #[derive(Clone)]
 pub struct HashMap<K, V, S = DefaultHashBuilder> {
     pub(crate) hash_builder: S,

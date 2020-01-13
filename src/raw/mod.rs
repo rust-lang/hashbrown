@@ -329,6 +329,7 @@ impl<T> Bucket<T> {
 }
 
 /// A raw hash table with an unsafe API.
+#[repr(C)]
 pub struct RawTable<T> {
     // Mask to get an index from a hash value. The value is one less than the
     // number of buckets in the table.
