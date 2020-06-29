@@ -67,6 +67,7 @@ pub mod raw {
 mod raw;
 
 mod external_trait_impls;
+mod incremental;
 mod map;
 #[cfg(feature = "rustc-internal-api")]
 mod rustc_entry;
@@ -105,6 +106,7 @@ pub mod hash_set {
     }
 }
 
+pub use crate::incremental::IncrHashMap;
 pub use crate::map::HashMap;
 pub use crate::set::HashSet;
 

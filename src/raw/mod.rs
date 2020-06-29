@@ -675,6 +675,11 @@ impl<T> RawTable<T> {
         }
     }
 
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub(crate) fn full_capacity(&self) -> usize {
+        bucket_mask_to_capacity(self.bucket_mask)
+    }
+
     /// Out-of-line slow path for `reserve` and `try_reserve`.
     #[cold]
     #[inline(never)]
@@ -689,7 +694,7 @@ impl<T> RawTable<T> {
             .checked_add(additional)
             .ok_or_else(|| fallability.capacity_overflow())?;
 
-        let full_capacity = bucket_mask_to_capacity(self.bucket_mask);
+        let full_capacity = self.full_capacity();
         if new_items <= full_capacity / 2 {
             // Rehash in-place without re-allocating if we have plenty of spare
             // capacity that is locked up due to DELETED entries.
