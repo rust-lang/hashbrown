@@ -430,7 +430,7 @@ impl<K, V, S> IncrHashMap<K, V, S> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn len(&self) -> usize {
-        self.table.len() + self.leftovers.as_ref().map(|t| t.table.len()).unwrap_or(0)
+        self.table.len() + self.leftovers.as_ref().map_or(0, |t| t.table.len())
     }
 
     /// Returns `true` if the map contains no elements.
@@ -959,7 +959,7 @@ impl<K, V> IntoIter<K, V> {
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             table: self.table.iter(),
-            leftovers: self.leftovers.as_ref().map(|i| i.iter()),
+            leftovers: self.leftovers.as_ref().map(RawIntoIter::iter),
             marker: PhantomData,
         }
     }
@@ -1113,7 +1113,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
 impl<K, V> ExactSizeIterator for Iter<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn len(&self) -> usize {
-        self.table.len() + self.leftovers.as_ref().map(|lo| lo.len()).unwrap_or(0)
+        self.table.len() + self.leftovers.as_ref().map_or(0, |lo| lo.len())
     }
 }
 
@@ -1149,7 +1149,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
 impl<K, V> ExactSizeIterator for IterMut<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn len(&self) -> usize {
-        self.table.len() + self.leftovers.as_ref().map(|lo| lo.len()).unwrap_or(0)
+        self.table.len() + self.leftovers.as_ref().map_or(0, |lo| lo.len())
     }
 }
 impl<K, V> FusedIterator for IterMut<'_, K, V> {}
@@ -1188,7 +1188,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
 impl<K, V> ExactSizeIterator for IntoIter<K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn len(&self) -> usize {
-        self.table.len() + self.leftovers.as_ref().map(|lo| lo.len()).unwrap_or(0)
+        self.table.len() + self.leftovers.as_ref().map_or(0, |lo| lo.len())
     }
 }
 impl<K, V> FusedIterator for IntoIter<K, V> {}
