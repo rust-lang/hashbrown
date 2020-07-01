@@ -1511,7 +1511,7 @@ unsafe impl<#[may_dangle] T> Drop for RawIntoIter<T> {
             }
 
             // Free the table
-            if let Some((ptr, layout)) = self.table.into_alloc() {
+            if let Some((ptr, layout)) = ManuallyDrop::take(&mut self.table).into_alloc() {
                 dealloc(ptr.as_ptr(), layout);
             }
         }
