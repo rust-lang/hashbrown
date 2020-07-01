@@ -1474,7 +1474,7 @@ impl<T: Clone> Clone for RawIntoIter<T> {
                 // lookups.
                 self.table
                     .ctrl(0)
-                    .copy_to_nonoverlapping(table.ctrl(0), table.num_ctrl_bytes());
+                    .copy_to_nonoverlapping(table.ctrl(0), self.table.num_ctrl_bytes());
 
                 // Next, we move over all the _remaining_ non-empty buckets.
                 // We can do so without knowing the hash since the tables are identical.
@@ -1518,7 +1518,7 @@ impl<T: Clone> Clone for RawIntoIter<T> {
 
                     // next_ctrl is at the same offset to end
                     next_ctrl: if next_ctrl > end {
-                        iter.iter.iter.end
+                        iter.iter.iter.end.add(next_ctrl as usize - end as usize)
                     } else {
                         iter.iter.iter.end.sub(end as usize - next_ctrl as usize)
                     },
