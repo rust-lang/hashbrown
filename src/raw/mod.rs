@@ -1497,11 +1497,10 @@ impl<T: Clone> Clone for RawIntoIter<T> {
                     data: iter.table.bucket(self.table.bucket_index(data)),
 
                     // next_ctrl is at the same offset to end
-                    // next_ctrl increases towards end, so it is normally smaller than end
                     next_ctrl: if next_ctrl > end {
                         iter.iter.iter.end
                     } else {
-                        iter.iter.iter.end.add(end.sub(next_ctrl as usize) as usize)
+                        iter.iter.iter.end.add(end as usize - next_ctrl as usize)
                     },
 
                     // The updated end is the one to use.
