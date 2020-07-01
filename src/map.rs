@@ -3281,10 +3281,11 @@ mod test_map {
             let hasher = m.hasher().clone();
 
             let mut it1 = m.table.into_iter();
-            let mut it2 = it1.clone();
             assert_eq!(it1.len(), n);
-            assert_eq!(it2.len(), n);
             for i in 0..n {
+                let mut it2 = it1.clone();
+                assert_eq!(it2.len(), it1.len());
+
                 let e1 = it1.next();
                 let (k, v) = e1.unwrap();
 
@@ -3328,6 +3329,7 @@ mod test_map {
                 assert_eq!(hits, n - i - 1);
             }
             assert_eq!(it1.next(), None);
+            let mut it2 = it1.clone();
             assert_eq!(it2.next(), None);
 
             // and just as a sanity check, all finds should fail now
@@ -3356,13 +3358,14 @@ mod test_map {
             let hasher = m.hasher().clone();
 
             let mut it1 = m.table.into_iter();
-            let mut it2 = it1.clone();
             assert_eq!(it1.len(), n);
-            assert_eq!(it2.len(), n);
 
             let mut i = 0;
             let mut left = n;
             loop {
+                let mut it2 = it1.clone();
+                assert_eq!(it2.len(), it1.len());
+
                 // occasionally remove some elements
                 if i % 3 == 0 {
                     let mut hasher = hasher.build_hasher();
@@ -3430,6 +3433,7 @@ mod test_map {
             }
             assert_eq!(i, left);
             assert_eq!(it1.next(), None);
+            let mut it2 = it1.clone();
             assert_eq!(it2.next(), None);
 
             // and just as a sanity check, all finds should fail now
