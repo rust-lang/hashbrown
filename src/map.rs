@@ -3190,9 +3190,66 @@ mod test_map {
         let it1 = m.table.into_iter();
         let it2 = it1.clone();
         assert_eq!(it1.len(), n);
-        assert_eq!(it1.len(), it2.len());
+        assert_eq!(it2.len(), n);
         for (e1, e2) in it1.zip(it2) {
             assert_eq!(e1, e2);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "raw")]
+    fn test_into_iter_clone_find() {
+        use core::hash::{BuildHasher, Hash, Hasher};
+
+        for n in 0..64 {
+            let mut m = HashMap::new();
+            for i in 0..n {
+                assert!(m.insert(i, 2 * i).is_none());
+            }
+            let hasher = m.hasher().clone();
+
+            let mut it1 = m.table.into_iter();
+            let mut it2 = it1.clone();
+            assert_eq!(it1.len(), n);
+            assert_eq!(it2.len(), n);
+            loop {
+                let e1 = it1.next();
+                if e1.is_none() {
+                    break;
+                }
+                let (k, v) = e1.unwrap();
+
+                let mut hasher = hasher.build_hasher();
+                k.hash(&mut hasher);
+                let hash = hasher.finish();
+
+                // since we have yielded the item from it1, it should no longer "have" (k, v)
+                let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&k));
+                assert_eq!(e1.map(|b| unsafe { b.as_ref() }), None);
+
+                // since we haven't yielded the next item from it2, it should still "have" (k, v)
+                let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&k));
+                assert_eq!(e2.map(|b| unsafe { b.as_ref() }), Some(&(k, v)));
+
+                // it2 should now yield the same item
+                assert_eq!(it2.next(), Some((k, v)));
+
+                // and now the same find should fail
+                let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&k));
+                assert_eq!(e2.map(|b| unsafe { b.as_ref() }), None);
+            }
+            assert_eq!(it2.next(), None);
+
+            // and just as a sanity check, all finds should fail now
+            for i in 0..n {
+                let mut hasher = hasher.build_hasher();
+                i.hash(&mut hasher);
+                let hash = hasher.finish();
+                let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&i));
+                assert_eq!(e1.map(|b| unsafe { b.as_ref() }), None);
+                let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&i));
+                assert_eq!(e2.map(|b| unsafe { b.as_ref() }), None);
+            }
         }
     }
 
