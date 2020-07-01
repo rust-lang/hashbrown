@@ -1463,32 +1463,52 @@ impl<T: Clone> Clone for RawIntoIter<T> {
         } else {
             unsafe {
                 // First, we construct an empty table with the same layout as the current one.
-                let mut table =
+                let mut table = ManuallyDrop::new(
                     RawTable::new_uninitialized(self.table.buckets(), Fallibility::Infallible)
-                        .unwrap_or_else(|_| hint::unreachable_unchecked());
-                table.ctrl(0).write_bytes(EMPTY, table.num_ctrl_bytes());
-                // Then, we move over all the _remaining_ non-empty buckets.
+                        .unwrap_or_else(|_| hint::unreachable_unchecked()),
+                );
+
+                // And copy over all the control state. This is okay despite the values are holding
+                // invalid values since the table is wrapped in ManuallyDrop. We need to do this
+                // instead of filling with EMPTY, since the ctrl values of past buckets may affect
+                // lookups.
+                self.table
+                    .ctrl(0)
+                    .copy_to_nonoverlapping(table.ctrl(0), table.num_ctrl_bytes());
+
+                // Next, we move over all the _remaining_ non-empty buckets.
                 // We can do so without knowing the hash since the tables are identical.
                 for bucket_in_self in self.iter.clone() {
                     let index = self.table.bucket_index(&bucket_in_self);
-                    let old_ctrl = *table.ctrl(index);
                     let bucket_in_new = table.bucket(index);
-                    table.growth_left -= special_is_empty(old_ctrl) as usize;
-                    table.set_ctrl(index, *self.table.ctrl(index));
                     bucket_in_new.write(bucket_in_self.as_ref().clone());
-                    table.items += 1;
                 }
-                // We can now get a RawIntoIter for the new table, but it will have to re-iterate
-                // over all the empty buckets this RawIntoIter has already drained. To avoid that
-                // cost, we migrate over the state from the current iterator. Much of its state is
+                table.growth_left -= self.table.growth_left;
+                table.items = self.table.items;
+
+                // We can now get a RawIntoIter for the new table.
+                //
+                // However:
+                //
+                //  - We cannot start it from the beginning, since we don't have valid values for
+                //    anything prior to self.iter, even though the ctrl bits say otherwise.
+                //  - Even if it were safe, we don't _want_ it to re-iterate over all the empty
+                //    buckets this RawIntoIter has already drained.
+                //
+                // So, we migrate over the state from the current iterator. Much of its state is
                 // still valid, since the new table has the same setup as the old one.
-                let mut iter = table.into_iter();
+                //
+                // We wrap the RawIntoIter in ManuallyDrop until its state has been "fixed up", so
+                // that it doesn't get dropped due to a panic and start dropping invalid values.
+                // Note that it is _vital_ here that RawTable::into_iter does not panic.
+                let mut iter = ManuallyDrop::new(ManuallyDrop::into_inner(table).into_iter());
                 let RawIterRange {
                     current_group,
                     ref data,
                     next_ctrl,
                     end,
                 } = self.iter.iter;
+                iter.iter.items = self.iter.items;
                 iter.iter.iter = RawIterRange {
                     // This state remains the same.
                     current_group,
@@ -1507,7 +1527,8 @@ impl<T: Clone> Clone for RawIntoIter<T> {
                     end: iter.iter.iter.end,
                 };
 
-                iter
+                // The iterator is now safe to drop.
+                ManuallyDrop::into_inner(iter)
             }
         }
     }
