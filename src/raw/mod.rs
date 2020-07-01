@@ -1500,7 +1500,7 @@ impl<T: Clone> Clone for RawIntoIter<T> {
                     next_ctrl: if next_ctrl > end {
                         iter.iter.iter.end
                     } else {
-                        iter.iter.iter.end.add(end as usize - next_ctrl as usize)
+                        iter.iter.iter.end.sub(end as usize - next_ctrl as usize)
                     },
 
                     // The updated end is the one to use.

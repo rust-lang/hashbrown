@@ -3102,7 +3102,10 @@ mod test_map {
         assert_eq!(m.iter_mut().next(), None);
         assert_eq!(m.len(), 0);
         assert!(m.is_empty());
-        assert_eq!(m.into_iter().next(), None);
+        let mut it = m.into_iter();
+        let mut it2 = it.inner.clone();
+        assert_eq!(it.next(), None);
+        assert_eq!(it2.next(), None);
     }
 
     #[test]
@@ -3167,6 +3170,45 @@ mod test_map {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_empty_into_iter_clone() {
+        let m: HashMap<i32, i32> = HashMap::new();
+        let it = m.table.into_iter();
+        let it2 = it.clone();
+        assert_eq!(it.count(), it2.count());
+    }
+
+    #[test]
+    fn test_into_iter_clone_eq() {
+        let mut m = HashMap::new();
+        let n = 1024;
+        for i in 0..n {
+            assert!(m.insert(i, 2 * i).is_none());
+        }
+        let it1 = m.table.into_iter();
+        let it2 = it1.clone();
+        assert_eq!(it1.len(), n);
+        assert_eq!(it1.len(), it2.len());
+        for (e1, e2) in it1.zip(it2) {
+            assert_eq!(e1, e2);
+        }
+    }
+
+    #[test]
+    fn test_into_iter_clone() {
+        let mut m = HashMap::new();
+        let n = 1024;
+        for i in 0..n {
+            assert!(m.insert(i, 2 * i).is_none());
+        }
+        let it = m.table.into_iter();
+        let it2 = it.clone();
+        drop(it);
+        let mut it = it2;
+        assert_eq!(it.len(), 1024);
+        assert!(it.all(|(k, v)| v == 2 * k));
     }
 
     #[test]
