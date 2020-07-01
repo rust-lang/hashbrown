@@ -999,6 +999,7 @@ impl<T> RawTable<T> {
     /// Converts the table into a raw allocation. The contents of the table
     /// should be dropped using a `RawIter` before freeing the allocation.
     #[cfg_attr(feature = "inline-more", inline)]
+    #[cfg(feature = "rayon")]
     pub(crate) fn into_alloc(self) -> Option<(NonNull<u8>, Layout)> {
         let alloc = if self.is_empty_singleton() {
             None
