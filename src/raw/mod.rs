@@ -1455,6 +1455,64 @@ pub struct RawIntoIter<T> {
     marker: PhantomData<T>,
 }
 
+impl<T: Clone> Clone for RawIntoIter<T> {
+    fn clone(&self) -> Self {
+        if self.table.is_empty_singleton() {
+            RawTable::<T>::new().into_iter()
+        } else {
+            unsafe {
+                // First, we construct an empty table with the same layout as the current one.
+                let mut table =
+                    RawTable::new_uninitialized(self.table.buckets(), Fallibility::Infallible)
+                        .unwrap_or_else(|_| hint::unreachable_unchecked());
+                table.ctrl(0).write_bytes(EMPTY, table.num_ctrl_bytes());
+                // Then, we move over all the _remaining_ non-empty buckets.
+                // We can do so without knowing the hash since the tables are identical.
+                for bucket_in_self in self.iter.clone() {
+                    let index = self.table.bucket_index(&bucket_in_self);
+                    let old_ctrl = *table.ctrl(index);
+                    let bucket_in_new = table.bucket(index);
+                    table.growth_left -= special_is_empty(old_ctrl) as usize;
+                    table.set_ctrl(index, *self.table.ctrl(index));
+                    bucket_in_new.write(bucket_in_self.as_ref().clone());
+                    table.items += 1;
+                }
+                // We can now get a RawIntoIter for the new table, but it will have to re-iterate
+                // over all the empty buckets this RawIntoIter has already drained. To avoid that
+                // cost, we migrate over the state from the current iterator. Much of its state is
+                // still valid, since the new table has the same setup as the old one.
+                let mut iter = table.into_iter();
+                let RawIterRange {
+                    current_group,
+                    ref data,
+                    next_ctrl,
+                    end,
+                } = self.iter.iter;
+                iter.iter.iter = RawIterRange {
+                    // This state remains the same.
+                    current_group,
+
+                    // The bucket _index_ is the same.
+                    data: iter.table.bucket(self.table.bucket_index(data)),
+
+                    // next_ctrl is at the same offset to end
+                    // next_ctrl increases towards end, so it is normally smaller than end
+                    next_ctrl: if next_ctrl > end {
+                        iter.iter.iter.end
+                    } else {
+                        iter.iter.iter.end.add(end.sub(next_ctrl as usize) as usize)
+                    },
+
+                    // The updated end is the one to use.
+                    end: iter.iter.iter.end,
+                };
+
+                iter
+            }
+        }
+    }
+}
+
 impl<T> RawIntoIter<T> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter(&self) -> RawIter<T> {
