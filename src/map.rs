@@ -3284,13 +3284,13 @@ mod test_map {
             let mut it2 = it1.clone();
             assert_eq!(it1.len(), n);
             assert_eq!(it2.len(), n);
-            for _ in 0..n {
+            for i in 0..n {
                 let e1 = it1.next();
                 let (k, v) = e1.unwrap();
 
-                let mut hasher = hasher.build_hasher();
-                k.hash(&mut hasher);
-                let hash = hasher.finish();
+                let mut hsh = hasher.build_hasher();
+                k.hash(&mut hsh);
+                let hash = hsh.finish();
 
                 // since we have yielded the item from it1, it should no longer "have" (k, v)
                 let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&k));
@@ -3306,6 +3306,26 @@ mod test_map {
                 // and now the same find should fail
                 let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&k));
                 assert_eq!(e2.map(|b| unsafe { b.as_ref() }), None);
+
+                // check that all the finds work out the way they should
+                let mut hits = 0;
+                for j in 0..n {
+                    let mut hsh = hasher.build_hasher();
+                    j.hash(&mut hsh);
+                    let hash = hsh.finish();
+
+                    let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&j));
+                    let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&j));
+                    if e1.is_some() {
+                        hits += 1;
+                    }
+                    assert_eq!(
+                        e1.map(|b| unsafe { b.as_ref() }),
+                        e2.map(|b| unsafe { b.as_ref() })
+                    );
+                }
+                // we should hit for all the keys we haven't iterated over yet
+                assert_eq!(hits, n - i - 1);
             }
             assert_eq!(it1.next(), None);
             assert_eq!(it2.next(), None);
@@ -3367,9 +3387,9 @@ mod test_map {
                 }
                 let (k, v) = e1.unwrap();
 
-                let mut hasher = hasher.build_hasher();
-                k.hash(&mut hasher);
-                let hash = hasher.finish();
+                let mut hsh = hasher.build_hasher();
+                k.hash(&mut hsh);
+                let hash = hsh.finish();
 
                 // since we have yielded the item from it1, it should no longer "have" (k, v)
                 let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&k));
@@ -3385,6 +3405,26 @@ mod test_map {
                 // and now the same find should fail
                 let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&k));
                 assert_eq!(e2.map(|b| unsafe { b.as_ref() }), None);
+
+                // check that all the finds work out the way they should
+                let mut hits = 0;
+                for j in 0..n {
+                    let mut hsh = hasher.build_hasher();
+                    j.hash(&mut hsh);
+                    let hash = hsh.finish();
+
+                    let e1 = crate::raw::RawIntoIter::find(&it1, hash, |q| q.0.eq(&j));
+                    let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&j));
+                    if e1.is_some() {
+                        hits += 1;
+                    }
+                    assert_eq!(
+                        e1.map(|b| unsafe { b.as_ref() }),
+                        e2.map(|b| unsafe { b.as_ref() })
+                    );
+                }
+                // we should hit for all the keys we haven't iterated over yet
+                assert_eq!(hits, left - i - 1);
 
                 i += 1;
             }
