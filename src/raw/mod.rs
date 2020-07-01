@@ -1566,6 +1566,9 @@ unsafe impl<#[may_dangle] T> Drop for RawIntoIter<T> {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
+            }
+            // Make sure we don't re-try dropping them in RawTable::drop
+            if mem::needs_drop::<T>() && self.table.len() != 0 {
                 self.table.clear_no_drop();
             }
 
@@ -1584,6 +1587,9 @@ impl<T> Drop for RawIntoIter<T> {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
+            }
+            // Make sure we don't re-try dropping them in RawTable::drop
+            if mem::needs_drop::<T>() && self.table.len() != 0 {
                 self.table.clear_no_drop();
             }
 
