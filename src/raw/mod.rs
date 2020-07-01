@@ -310,11 +310,6 @@ impl<T> Bucket<T> {
         }
     }
     #[cfg_attr(feature = "inline-more", inline)]
-    #[cfg(feature = "raw")]
-    pub fn before(&self, other: &Bucket<T>) -> bool {
-        self.ptr > other.ptr
-    }
-    #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn as_ptr(&self) -> *mut T {
         if mem::size_of::<T>() == 0 {
             // Just return an arbitrary ZST pointer which is properly aligned
@@ -912,17 +907,25 @@ impl<T> RawTable<T> {
         }
     }
 
-    /// Searches for an element in the table.
-    #[inline]
-    pub fn find(&self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
+    /// Searches for an element in the table, but only at or beyond the given bucket index.
+    #[inline(always)]
+    fn find_from_bucket(
+        &self,
+        hash: u64,
+        mut eq: impl FnMut(&T) -> bool,
+        start: usize,
+    ) -> Option<Bucket<T>> {
         unsafe {
             for pos in self.probe_seq(hash) {
                 let group = Group::load(self.ctrl(pos));
                 for bit in group.match_byte(h2(hash)) {
                     let index = (pos + bit) & self.bucket_mask;
-                    let bucket = self.bucket(index);
-                    if likely(eq(bucket.as_ref())) {
-                        return Some(bucket);
+                    // NOTE: This comparison should be optimized out for find.
+                    if index >= start {
+                        let bucket = self.bucket(index);
+                        if likely(eq(bucket.as_ref())) {
+                            return Some(bucket);
+                        }
                     }
                 }
                 if likely(group.match_empty().any_bit_set()) {
@@ -933,6 +936,12 @@ impl<T> RawTable<T> {
 
         // probe_seq never returns.
         unreachable!();
+    }
+
+    /// Searches for an element in the table.
+    #[inline]
+    pub fn find(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
+        self.find_from_bucket(hash, eq, 0)
     }
 
     /// Returns the number of elements the map can hold without reallocating.
@@ -1563,14 +1572,12 @@ impl<T> RawIntoIter<T> {
                 // Iterator is done, so lookup must fail.
                 None
             }
-            Some(next) => {
-                let bucket = self.table.find(hash, eq)?;
-                if bucket.before(&next) {
-                    None
-                } else {
-                    Some(bucket)
-                }
-            }
+            Some(next) => unsafe {
+                // We have to make sure we never look at "earlier"
+                // buckets than the iterator's current position.
+                let next = self.table.bucket_index(&next);
+                self.table.find_from_bucket(hash, eq, next)
+            },
         }
     }
 }
