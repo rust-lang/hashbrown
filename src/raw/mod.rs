@@ -1483,7 +1483,7 @@ impl<T: Clone> Clone for RawIntoIter<T> {
                     let bucket_in_new = table.bucket(index);
                     bucket_in_new.write(bucket_in_self.as_ref().clone());
                 }
-                table.growth_left -= self.table.growth_left;
+                table.growth_left = self.table.growth_left;
                 table.items = self.table.items;
 
                 // We can now get a RawIntoIter for the new table.
