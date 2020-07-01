@@ -1196,7 +1196,7 @@ unsafe impl<#[may_dangle] T> Drop for RawTable<T> {
     fn drop(&mut self) {
         if !self.is_empty_singleton() {
             unsafe {
-                if mem::needs_drop::<T>() {
+                if mem::needs_drop::<T>() && self.len() != 0 {
                     for item in self.iter() {
                         item.drop();
                     }
@@ -1212,7 +1212,7 @@ impl<T> Drop for RawTable<T> {
     fn drop(&mut self) {
         if !self.is_empty_singleton() {
             unsafe {
-                if mem::needs_drop::<T>() {
+                if mem::needs_drop::<T>() && self.len() != 0 {
                     for item in self.iter() {
                         item.drop();
                     }
@@ -1562,7 +1562,7 @@ unsafe impl<#[may_dangle] T> Drop for RawIntoIter<T> {
     fn drop(&mut self) {
         unsafe {
             // Drop all remaining elements
-            if mem::needs_drop::<T>() {
+            if mem::needs_drop::<T>() && self.iter.len() != 0 {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
@@ -1579,7 +1579,7 @@ impl<T> Drop for RawIntoIter<T> {
     fn drop(&mut self) {
         unsafe {
             // Drop all remaining elements
-            if mem::needs_drop::<T>() {
+            if mem::needs_drop::<T>() && self.iter.len() != 0 {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
@@ -1638,7 +1638,7 @@ impl<T> Drop for RawDrain<'_, T> {
     fn drop(&mut self) {
         unsafe {
             // Drop all remaining elements. Note that this may panic.
-            if mem::needs_drop::<T>() {
+            if mem::needs_drop::<T>() && self.iter.len() != 0 {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
