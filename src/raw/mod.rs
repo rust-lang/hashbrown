@@ -1478,6 +1478,7 @@ impl<T: Clone> Clone for RawIntoIter<T> {
 
                 // Next, we move over all the _remaining_ non-empty buckets.
                 // We can do so without knowing the hash since the tables are identical.
+                // TODO: we could be smarter about this if T: Copy
                 for bucket_in_self in self.iter.clone() {
                     let index = self.table.bucket_index(&bucket_in_self);
                     let bucket_in_new = table.bucket(index);
