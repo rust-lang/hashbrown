@@ -310,6 +310,11 @@ impl<T> Bucket<T> {
         }
     }
     #[cfg_attr(feature = "inline-more", inline)]
+    #[cfg(feature = "raw")]
+    pub fn before(&self, other: &Bucket<T>) -> bool {
+        self.ptr > other.ptr
+    }
+    #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn as_ptr(&self) -> *mut T {
         if mem::size_of::<T>() == 0 {
             // Just return an arbitrary ZST pointer which is properly aligned
@@ -1226,10 +1231,9 @@ impl<T> IntoIterator for RawTable<T> {
     fn into_iter(self) -> RawIntoIter<T> {
         unsafe {
             let iter = self.iter();
-            let alloc = self.into_alloc();
             RawIntoIter {
                 iter,
-                alloc,
+                table: ManuallyDrop::new(self),
                 marker: PhantomData,
             }
         }
@@ -1318,6 +1322,30 @@ impl<T> RawIterRange<T> {
                 (self, Some(tail))
             }
         }
+    }
+
+    /// The next bucket the iterator will check.
+    #[cfg(feature = "raw")]
+    fn progressed_to(&self) -> Option<Bucket<T>> {
+        if let Some(index) = self.current_group.lowest_set_bit() {
+            Some(unsafe { self.data.next_n(index) })
+        } else if self.next_ctrl >= self.end {
+            None
+        } else {
+            Some(unsafe { self.data.next_n(Group::WIDTH) })
+        }
+    }
+
+    /// Refresh the iterator so that it reflects removals in the current group.
+    #[cfg(feature = "raw")]
+    fn refresh_removals(&mut self) {
+        // Reload the current group state, in case it changed.
+        let current_group = unsafe {
+            let current_ctrl = self.next_ctrl.sub(Group::WIDTH);
+            Group::load_aligned(current_ctrl).match_full()
+        };
+        // We don't want to lose track of how far we've iterated.
+        self.current_group = self.current_group.and(current_group);
     }
 }
 
@@ -1423,7 +1451,7 @@ impl<T> FusedIterator for RawIter<T> {}
 /// Iterator which consumes a table and returns elements.
 pub struct RawIntoIter<T> {
     iter: RawIter<T>,
-    alloc: Option<(NonNull<u8>, Layout)>,
+    table: ManuallyDrop<RawTable<T>>,
     marker: PhantomData<T>,
 }
 
@@ -1431,6 +1459,39 @@ impl<T> RawIntoIter<T> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter(&self) -> RawIter<T> {
         self.iter.clone()
+    }
+
+    /// Erases an element from the table without dropping it.
+    #[cfg_attr(feature = "inline-more", inline)]
+    #[cfg(feature = "raw")]
+    pub unsafe fn erase_no_drop(&mut self, item: &Bucket<T>) {
+        self.table.erase_no_drop(item);
+        // Fix up the iterator so it doesn't yield the erased element.
+        // Since there are no items left in the table before the iterator's location,
+        // we know that the erased item must have been coming up in the iterator.
+        self.iter.items -= 1;
+        self.iter.iter.refresh_removals();
+    }
+
+    /// Searches for an element in the table.
+    #[inline]
+    #[cfg(feature = "raw")]
+    pub fn find(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
+        // All items we have already yielded should be considered erased.
+        match self.iter.iter.progressed_to() {
+            None => {
+                // Iterator is done, so lookup must fail.
+                None
+            }
+            Some(next) => {
+                let bucket = self.table.find(hash, eq)?;
+                if bucket.before(&next) {
+                    None
+                } else {
+                    Some(bucket)
+                }
+            }
+        }
     }
 }
 
@@ -1450,7 +1511,7 @@ unsafe impl<#[may_dangle] T> Drop for RawIntoIter<T> {
             }
 
             // Free the table
-            if let Some((ptr, layout)) = self.alloc {
+            if let Some((ptr, layout)) = self.table.into_alloc() {
                 dealloc(ptr.as_ptr(), layout);
             }
         }
@@ -1469,7 +1530,7 @@ impl<T> Drop for RawIntoIter<T> {
             }
 
             // Free the table
-            if let Some((ptr, layout)) = self.alloc {
+            if let Some((ptr, layout)) = ManuallyDrop::take(&mut self.table).into_alloc() {
                 dealloc(ptr.as_ptr(), layout);
             }
         }

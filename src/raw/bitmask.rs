@@ -25,6 +25,14 @@ impl BitMask {
         BitMask(self.0 ^ BITMASK_MASK)
     }
 
+    /// Returns a new `BitMask` that is ANDed with the given mask.
+    #[inline]
+    #[must_use]
+    #[cfg(feature = "raw")]
+    pub fn and(self, other: BitMask) -> Self {
+        BitMask(self.0 & other.0)
+    }
+
     /// Returns a new `BitMask` with the lowest bit removed.
     #[inline]
     #[must_use]
