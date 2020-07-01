@@ -1567,6 +1567,7 @@ unsafe impl<#[may_dangle] T> Drop for RawIntoIter<T> {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
+                self.table.clear_no_drop();
             }
 
             // Free the table
@@ -1584,6 +1585,7 @@ impl<T> Drop for RawIntoIter<T> {
                 while let Some(item) = self.iter.next() {
                     item.drop();
                 }
+                self.table.clear_no_drop();
             }
 
             // Free the table
