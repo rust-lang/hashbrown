@@ -1567,16 +1567,29 @@ impl<T> RawIntoIter<T> {
         self.iter.clone()
     }
 
-    /// Erases an element from the table without dropping it.
+    /// Erases and drops an element from the table.
     #[cfg_attr(feature = "inline-more", inline)]
     #[cfg(feature = "raw")]
-    pub unsafe fn erase_no_drop(&mut self, item: &Bucket<T>) {
-        self.table.erase_no_drop(item);
+    pub unsafe fn erase(&mut self, item: Bucket<T>) {
+        self.table.erase(item);
         // Fix up the iterator so it doesn't yield the erased element.
         // Since there are no items left in the table before the iterator's location,
         // we know that the erased item must have been coming up in the iterator.
         self.iter.items -= 1;
         self.iter.iter.refresh_removals();
+    }
+
+    /// Removes and returns an element from the table.
+    #[cfg_attr(feature = "inline-more", inline)]
+    #[cfg(feature = "raw")]
+    pub unsafe fn remove(&mut self, item: Bucket<T>) -> T {
+        let v = self.table.remove(item);
+        // Fix up the iterator so it doesn't yield the erased element.
+        // Since there are no items left in the table before the iterator's location,
+        // we know that the erased item must have been coming up in the iterator.
+        self.iter.items -= 1;
+        self.iter.iter.refresh_removals();
+        v
     }
 
     /// Searches for an element in the table.

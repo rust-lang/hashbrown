@@ -3222,7 +3222,7 @@ mod test_map {
                     unsafe {
                         let e = crate::raw::RawIntoIter::find(&it, hash, |q| q.0.eq(&i));
                         if let Some(e) = e {
-                            crate::raw::RawIntoIter::erase_no_drop(&mut it, &e);
+                            crate::raw::RawIntoIter::erase(&mut it, e);
                             left -= 1;
                         }
                     }
@@ -3367,8 +3367,8 @@ mod test_map {
                         let e2 = crate::raw::RawIntoIter::find(&it2, hash, |q| q.0.eq(&i));
                         assert_eq!(e1.is_some(), e2.is_some());
                         if let (Some(e1), Some(e2)) = (e1, e2) {
-                            crate::raw::RawIntoIter::erase_no_drop(&mut it1, &e1);
-                            crate::raw::RawIntoIter::erase_no_drop(&mut it2, &e2);
+                            crate::raw::RawIntoIter::erase(&mut it1, e1);
+                            crate::raw::RawIntoIter::erase(&mut it2, e2);
                             left -= 1;
                         }
                     }
