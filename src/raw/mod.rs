@@ -925,7 +925,7 @@ impl<T> RawTable<T> {
     }
 
     /// Searches for an element in the table, but only at or beyond the given bucket index.
-    #[inline(always)]
+    #[inline]
     fn find_from_bucket(
         &self,
         hash: u64,
