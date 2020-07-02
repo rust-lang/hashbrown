@@ -1099,13 +1099,14 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 }
 
-impl<K, V, S> PartialEq for HashMap<K, V, S>
+impl<K, V, S, S2> PartialEq<HashMap<K, V, S2>> for HashMap<K, V, S>
 where
     K: Eq + Hash,
     V: PartialEq,
     S: BuildHasher,
+    S2: BuildHasher,
 {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &HashMap<K, V, S2>) -> bool {
         if self.len() != other.len() {
             return false;
         }
@@ -3315,6 +3316,35 @@ mod test_map {
         m2.insert(3, 4);
 
         assert_eq!(m1, m2);
+
+        // Also test with a custom hasher.
+
+        use core::hash::{BuildHasher, Hasher};
+
+        #[derive(Default)]
+        pub struct ZeroHasher;
+
+        pub struct ZeroHashBuilder;
+
+        impl Hasher for ZeroHasher {
+            fn finish(&self) -> u64 {
+                0
+            }
+            fn write(&mut self, _: &[u8]) {}
+        }
+
+        impl BuildHasher for ZeroHashBuilder {
+            type Hasher = ZeroHasher;
+
+            fn build_hasher(&self) -> ZeroHasher {
+                ZeroHasher
+            }
+        }
+
+        let mut m3 = HashMap::with_hasher(ZeroHashBuilder);
+        m3.extend(m2.iter());
+
+        assert_eq!(m2, m3);
     }
 
     #[test]
