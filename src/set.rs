@@ -921,12 +921,13 @@ where
     }
 }
 
-impl<T, S> PartialEq for HashSet<T, S>
+impl<T, S, S2> PartialEq<HashSet<T, S2>> for HashSet<T, S>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    S2: BuildHasher,
 {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &HashSet<T, S2>) -> bool {
         if self.len() != other.len() {
             return false;
         }
@@ -1843,11 +1844,46 @@ mod test_set {
         s2.insert(1);
         s2.insert(2);
 
-        assert!(s1 != s2);
+        assert_ne!(s1, s2);
 
         s2.insert(3);
 
         assert_eq!(s1, s2);
+
+        // Also test with a custom hasher.
+
+        use core::hash::{BuildHasher, Hasher};
+
+        #[derive(Default)]
+        pub struct ZeroHasher;
+
+        pub struct ZeroHashBuilder;
+
+        impl Hasher for ZeroHasher {
+            fn finish(&self) -> u64 {
+                0
+            }
+            fn write(&mut self, _: &[u8]) {}
+        }
+
+        impl BuildHasher for ZeroHashBuilder {
+            type Hasher = ZeroHasher;
+
+            fn build_hasher(&self) -> ZeroHasher {
+                ZeroHasher
+            }
+        }
+
+        let mut s3 = HashSet::with_hasher(ZeroHashBuilder);
+        s3.extend(s2.iter());
+
+        assert_eq!(s2, s3);
+
+        s3.remove(&1);
+        assert_ne!(s2, s3);
+
+        s3.insert(4);
+        assert_ne!(s2, s3);
     }
 
     #[test]

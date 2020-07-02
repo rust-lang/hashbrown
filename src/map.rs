@@ -3311,7 +3311,7 @@ mod test_map {
         m2.insert(1, 2);
         m2.insert(2, 3);
 
-        assert!(m1 != m2);
+        assert_ne!(m1, m2);
 
         m2.insert(3, 4);
 
@@ -3345,6 +3345,12 @@ mod test_map {
         m3.extend(m2.iter());
 
         assert_eq!(m2, m3);
+
+        m3.remove(&1);
+        assert_ne!(m2, m3);
+
+        m3.insert(4, 5);
+        assert_ne!(m2, m3);
     }
 
     #[test]
