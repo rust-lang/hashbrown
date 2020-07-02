@@ -3187,6 +3187,23 @@ mod test_map {
     }
 
     #[test]
+    fn test_into_iter_clone_independent() {
+        let mut m = HashMap::new();
+        let n = 1024;
+        for i in 0..n {
+            assert!(m.insert(i, std::boxed::Box::new(2 * i)).is_none());
+        }
+        let it1 = m.table.into_iter();
+        let it2 = it1.clone();
+        for (_, mut e) in it1 {
+            *e = usize::max_value();
+        }
+        for (k, v) in it2 {
+            assert_eq!(*v, 2 * k);
+        }
+    }
+
+    #[test]
     #[cfg(feature = "raw")]
     fn test_into_iter_find_with_remove() {
         use core::hash::{BuildHasher, Hash, Hasher};
