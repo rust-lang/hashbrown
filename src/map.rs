@@ -211,7 +211,7 @@ impl<K: Clone, V: Clone, S: Clone> Clone for HashMap<K, V, S> {
 #[cfg_attr(feature = "inline-more", inline)]
 pub(crate) fn make_hasher<K, Q, V, S>(hash_builder: &S) -> impl Fn(&(Q, V)) -> u64 + '_
 where
-    K: Borrow<Q>,
+    K: Borrow<Q> + Hash,
     Q: Hash,
     S: BuildHasher,
 {
@@ -243,7 +243,7 @@ where
 #[cfg_attr(feature = "inline-more", inline)]
 pub(crate) fn make_hash<K, Q, S>(hash_builder: &S, val: &Q) -> u64
 where
-    K: Borrow<Q>,
+    K: Borrow<Q> + Hash,
     Q: Hash + ?Sized,
     S: BuildHasher,
 {
@@ -251,8 +251,7 @@ where
     {
         //This enables specialization to improve performance on primitive types
         use ahash::CallHasher;
-        let state = hash_builder.build_hasher();
-        Q::get_hash(val, state)
+        K::get_hash(val, hash_builder)
     }
     #[cfg(not(feature = "ahash"))]
     {
@@ -273,8 +272,7 @@ where
     {
         //This enables specialization to improve performance on primitive types
         use ahash::CallHasher;
-        let state = hash_builder.build_hasher();
-        K::get_hash(val, state)
+        K::get_hash(val, hash_builder)
     }
     #[cfg(not(feature = "ahash"))]
     {
@@ -1668,7 +1666,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilderMut<'a, K, V, S, A> {
     pub fn from_key<Q: ?Sized>(self, k: &Q) -> RawEntryMut<'a, K, V, S, A>
     where
         S: BuildHasher,
-        K: Borrow<Q>,
+        K: Borrow<Q> + Hash,
         Q: Hash + Eq,
     {
         let hash = make_hash::<K, Q, S>(&self.map.hash_builder, k);
@@ -1724,7 +1722,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilder<'a, K, V, S, A> {
     pub fn from_key<Q: ?Sized>(self, k: &Q) -> Option<(&'a K, &'a V)>
     where
         S: BuildHasher,
-        K: Borrow<Q>,
+        K: Borrow<Q> + Hash,
         Q: Hash + Eq,
     {
         let hash = make_hash::<K, Q, S>(&self.map.hash_builder, k);
