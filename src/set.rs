@@ -2253,10 +2253,10 @@ mod test_set {
 
     #[test]
     fn test_contains_specialization() {
-        use std::boxed::Box;
-        use crate::map::make_insert_hash;
         use crate::map::make_hash;
+        use crate::map::make_insert_hash;
         use crate::std::borrow::ToOwned;
+        use std::boxed::Box;
         use std::string::String;
 
         let mut m = HashSet::<String>::new();
@@ -2269,11 +2269,10 @@ mod test_set {
         let insert_hash = make_insert_hash(m.hasher(), &k);
 
         let k = &b"hello"[..];
-        let hash = make_hash::<Box<[u8]>,_,_>(m.hasher(), k);
+        let hash = make_hash::<Box<[u8]>, _, _>(m.hasher(), k);
         assert_eq!(hash, insert_hash);
 
         m.insert(Box::from(&b"hello"[..]));
         assert!(m.contains(&b"hello"[..]));
     }
-
 }
