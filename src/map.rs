@@ -255,8 +255,7 @@ where
     {
         //This enables specialization to improve performance on primitive types
         use ahash::CallHasher;
-        let state = hash_builder.build_hasher();
-        Q::get_hash(val, state)
+        Q::get_hash(val, hash_builder)
     }
     #[cfg(not(feature = "ahash"))]
     {
@@ -277,8 +276,7 @@ where
     {
         //This enables specialization to improve performance on primitive types
         use ahash::CallHasher;
-        let state = hash_builder.build_hasher();
-        K::get_hash(val, state)
+        K::get_hash(val, hash_builder)
     }
     #[cfg(not(feature = "ahash"))]
     {
