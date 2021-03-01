@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Changed
 - The minimum Rust version has been bumped to 1.49.0. (#230)
+- `hashbrown`'s benchmarks now use `criterion`
 
 ## [v0.10.0] - 2021-01-16
 
