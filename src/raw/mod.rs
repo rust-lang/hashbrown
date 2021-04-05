@@ -637,6 +637,18 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         }
     }
 
+    /// Cleans the table to ensure the maximum usable capacity in its current allocation,
+    /// rehashing items that need to move around previously-deleted entries.
+    #[cfg(feature = "raw")]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn vacuum(&mut self, hasher: impl Fn(&T) -> u64) {
+        let full_capacity = bucket_mask_to_capacity(self.table.bucket_mask);
+        if self.capacity() < full_capacity {
+            // Rehash in-place to clean up DELETED entries.
+            self.rehash_in_place(hasher);
+        }
+    }
+
     /// Ensures that at least `additional` items can be inserted into the table
     /// without reallocation.
     #[cfg_attr(feature = "inline-more", inline)]
@@ -2257,6 +2269,35 @@ mod test_map {
                 assert_eq!(table.find(i, |x| *x == i).map(|b| b.read()), Some(i));
             }
             assert!(table.find(i + 100, |x| *x == i + 100).is_none());
+        }
+    }
+
+    #[cfg(feature = "raw")]
+    #[test]
+    fn vacuum() {
+        let mut table = RawTable::with_capacity(100);
+        let full_capacity = table.capacity();
+
+        let hasher = |i: &u64| *i;
+        for i in 0..100 {
+            table.insert(i, i, hasher);
+        }
+        assert_eq!(table.capacity(), full_capacity);
+
+        // Remove items to get DELETED entries, so we lose capacity.
+        for i in 0..50 {
+            table.remove_entry(i, |&x| x == i);
+        }
+        assert!(table.capacity() < full_capacity);
+
+        // Vacuuming should recover the full capacity.
+        table.vacuum(hasher);
+        assert_eq!(table.capacity(), full_capacity);
+
+        // Make sure the table still contains what we expect.
+        assert_eq!(table.len(), 50);
+        for i in 50..100 {
+            assert_eq!(table.get(i, |&x| x == i), Some(&i));
         }
     }
 }
