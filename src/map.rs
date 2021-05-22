@@ -2249,6 +2249,21 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
         self.insert_hashed_nocheck(hash, key, value)
     }
 
+    /// Try to set the value of the entry with the VacantEntry's key,
+    /// and returns a mutable reference to it.
+    ///
+    /// Returns the key and value if growing the map was mandatory and
+    /// the allocator returns an error.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn try_insert(self, key: K, value: V) -> Result<(&'a mut K, &'a mut V), (K, V)>
+    where
+        K: Hash,
+        S: BuildHasher,
+    {
+        let hash = make_insert_hash::<K, S>(self.hash_builder, &key);
+        self.try_insert_hashed_nocheck(hash, key, value)
+    }
+
     /// Sets the value of the entry with the VacantEntry's key,
     /// and returns a mutable reference to it.
     #[cfg_attr(feature = "inline-more", inline)]
@@ -2264,6 +2279,32 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
             make_hasher::<K, _, V, S>(self.hash_builder),
         );
         (k, v)
+    }
+
+    /// Try to set the value of the entry with the VacantEntry's key,
+    /// and returns a mutable reference to it.
+    ///
+    /// Returns the key and value if growing the map was mandatory and
+    /// the allocator returns an error.
+    #[cfg_attr(feature = "inline-more", inline)]
+    #[allow(clippy::shadow_unrelated)]
+    pub fn try_insert_hashed_nocheck(
+        self,
+        hash: u64,
+        key: K,
+        value: V,
+    ) -> Result<(&'a mut K, &'a mut V), (K, V)>
+    where
+        K: Hash,
+        S: BuildHasher,
+    {
+        match self
+            .table
+            .try_reserve(1, make_hasher::<K, _, V, S>(self.hash_builder))
+        {
+            Ok(_) => Ok(self.insert_hashed_nocheck(hash, key, value)),
+            Err(_) => Err((key, value)),
+        }
     }
 
     /// Set the value of an entry with a custom hasher function.
@@ -2282,6 +2323,27 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
             .table
             .insert_entry(hash, (key, value), |x| hasher(&x.0));
         (k, v)
+    }
+
+    /// Try to set the value of an entry with a custom hasher function.
+    ///
+    /// Returns the key and value if growing the map was mandatory and
+    /// the allocator returns an error.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn try_insert_with_hasher<H>(
+        self,
+        hash: u64,
+        key: K,
+        value: V,
+        hasher: H,
+    ) -> Result<(&'a mut K, &'a mut V), (K, V)>
+    where
+        H: Fn(&K) -> u64,
+    {
+        match self.table.try_reserve(1, |x| hasher(&x.0)) {
+            Ok(_) => Ok(self.insert_with_hasher(hash, key, value, hasher)),
+            Err(_) => Err((key, value)),
+        }
     }
 
     #[cfg_attr(feature = "inline-more", inline)]
