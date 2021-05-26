@@ -28,6 +28,13 @@ cfg_if! {
     ))] {
         mod sse2;
         use sse2 as imp;
+    } else if #[cfg(all(
+        target_feature = "simd128",
+        any(target_arch = "wasm32", target_arch = "wasm64"),
+        not(miri)
+    ))] {
+        mod wasm;
+        use wasm as imp;
     } else {
         #[path = "generic.rs"]
         mod generic;
