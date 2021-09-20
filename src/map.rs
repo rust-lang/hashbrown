@@ -942,6 +942,68 @@ where
         }
     }
 
+    /// Gets the given key's corresponding entry in the map for in-place manipulation,
+    /// if it exists.
+    ///
+    /// The key may be any borrowed form of the map's key type, but
+    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
+    /// the key type.
+    ///
+    /// This is a version of `entry` that takes a borrowed key, but cannot be used to insert
+    /// a new entry, returning `None` when the key is not present in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut fruits = HashMap::new();
+    /// fruits.insert("apple".to_string(), 1);
+    /// fruits.insert("orange".to_string(), 3);
+    /// fruits.insert("pear".to_string(), 2);
+    ///
+    /// // Eats a fruit, returns true if succeeded.
+    /// let mut eat_one = |k| {
+    ///     if let Some(mut e) = fruits.try_entry(k) {
+    ///         let num = e.get_mut();
+    ///         *num -= 1;
+    ///         if *num == 0 {
+    ///             e.remove();
+    ///         }
+    ///         true
+    ///     } else {
+    ///         false
+    ///     }
+    /// };
+    ///
+    /// assert!(eat_one("apple"));
+    /// assert!(eat_one("orange"));
+    /// assert!(!eat_one("plum"));
+    ///
+    /// assert_eq!(fruits.get("apple"), None);
+    /// assert_eq!(fruits["orange"], 2);
+    /// assert_eq!(fruits["pear"], 2);
+    /// assert_eq!(fruits.get("plum"), None);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn try_entry<Q: ?Sized>(&mut self, k: &Q) -> Option<OccupiedEntry<'_, K, V, S, A>>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        let hash = make_hash::<K, Q, S>(&self.hash_builder, k);
+        if let Some(elem) = self.table.find(hash, equivalent_key(k)) {
+            Some(OccupiedEntry {
+                hash,
+                key: None,
+                elem,
+                table: self,
+            })
+        } else {
+            None
+        }
+    }
+
     /// Returns a reference to the value corresponding to the key.
     ///
     /// The key may be any borrowed form of the map's key type, but
@@ -3171,7 +3233,8 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     ///
     /// # Panics
     ///
-    /// Will panic if this OccupiedEntry was created through [`Entry::insert`].
+    /// Will panic if this OccupiedEntry was created through [`Entry::insert`] or
+    /// [`HashMap::get_entry`].
     ///
     /// # Examples
     ///
@@ -3204,7 +3267,8 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     ///
     /// # Panics
     ///
-    /// Will panic if this OccupiedEntry was created through [`Entry::insert`].
+    /// Will panic if this OccupiedEntry was created through [`Entry::insert`] or
+    /// [`HashMap::get_entry`].
     ///
     /// # Examples
     ///
@@ -3800,6 +3864,14 @@ mod test_map {
     }
 
     #[test]
+    fn test_empty_try_entry() {
+        let mut m: HashMap<i32, bool> = HashMap::new();
+        assert!(m.try_entry(&0).is_none());
+        assert!(*m.entry(0).or_insert(true));
+        assert_eq!(m.len(), 1);
+    }
+
+    #[test]
     fn test_empty_iter() {
         let mut m: HashMap<i32, bool> = HashMap::new();
         assert_eq!(m.drain().next(), None);
@@ -4312,6 +4384,51 @@ mod test_map {
     }
 
     #[test]
+    fn test_try_entry() {
+        let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
+
+        let mut map: HashMap<_, _> = xs.iter().copied().collect();
+
+        // Existing key (insert)
+        match map.try_entry(&1) {
+            None => unreachable!(),
+            Some(mut view) => {
+                assert_eq!(view.get(), &10);
+                assert_eq!(view.insert(100), 10);
+            }
+        }
+        assert_eq!(map.get(&1).unwrap(), &100);
+        assert_eq!(map.len(), 6);
+
+        // Existing key (update)
+        match map.try_entry(&2) {
+            None => unreachable!(),
+            Some(mut view) => {
+                let v = view.get_mut();
+                let new_v = (*v) * 10;
+                *v = new_v;
+            }
+        }
+        assert_eq!(map.get(&2).unwrap(), &200);
+        assert_eq!(map.len(), 6);
+
+        // Existing key (take)
+        match map.try_entry(&3) {
+            None => unreachable!(),
+            Some(view) => {
+                assert_eq!(view.remove(), 30);
+            }
+        }
+        assert_eq!(map.get(&3), None);
+        assert_eq!(map.len(), 5);
+
+        // Inexistent key
+        assert!(map.try_entry(&10).is_none());
+        assert_eq!(map.get(&10), None);
+        assert_eq!(map.len(), 5);
+    }
+
+    #[test]
     fn test_entry_take_doesnt_corrupt() {
         #![allow(deprecated)] //rand
                               // Test for #19292
@@ -4341,6 +4458,39 @@ mod test_map {
                 Occupied(e) => {
                     e.remove();
                 }
+            }
+
+            check(&m);
+        }
+    }
+
+    #[test]
+    fn test_try_entry_take_doesnt_corrupt() {
+        #![allow(deprecated)] //rand
+                              // Test for #19292
+        fn check(m: &HashMap<i32, ()>) {
+            for k in m.keys() {
+                assert!(m.contains_key(k), "{} is in keys() but not in the map?", k);
+            }
+        }
+
+        let mut m = HashMap::new();
+
+        let mut rng = {
+            let seed = u64::from_le_bytes(*b"testseed");
+            SmallRng::seed_from_u64(seed)
+        };
+
+        // Populate the map with some items.
+        for _ in 0..50 {
+            let x = rng.gen_range(-10..10);
+            m.insert(x, ());
+        }
+
+        for _ in 0..1000 {
+            let x = rng.gen_range(-10..10);
+            if let Some(e) = m.try_entry(&x) {
+                e.remove();
             }
 
             check(&m);
@@ -4402,6 +4552,7 @@ mod test_map {
             Vacant(_) => panic!(),
             Occupied(e) => assert_eq!(key, *e.key()),
         }
+        assert_eq!(*a.try_entry(&key).unwrap().key(), key);
         assert_eq!(a.len(), 1);
         assert_eq!(a[key], value);
     }
