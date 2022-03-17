@@ -1346,7 +1346,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     }
 
     #[allow(clippy::mut_mut)]
-    #[inline]
+    #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn prepare_resize(
         &self,
         table_layout: TableLayout,
