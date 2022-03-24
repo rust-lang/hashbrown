@@ -1346,7 +1346,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     }
 
     #[allow(clippy::mut_mut)]
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     unsafe fn prepare_resize(
         &self,
         table_layout: TableLayout,
@@ -1421,7 +1421,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// This uses dynamic dispatch to reduce the amount of
     /// code generated, but it is eliminated by LLVM optimizations when inlined.
     #[allow(clippy::inline_always)]
-    #[inline(always)]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     unsafe fn resize_inner(
         &mut self,
         capacity: usize,
