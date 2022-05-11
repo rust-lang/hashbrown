@@ -1609,19 +1609,32 @@ where
         }
     }
 
-    /// Remove an entry based on its key hash and an application-supplied matching function.
+    /// Remove a map entry based on its key hash and an application-supplied matching function.
     ///
     /// ```
+    /// use core::hash::Hasher;
+    /// use std::hash::{BuildHasher, Hash};
     /// use hashbrown::HashMap;
     ///
     /// let mut map = HashMap::new();
     /// map.insert(1, "a");
+    ///
+    /// let hash = {
+    ///   let hash_builder = map.hasher();
+    ///   let mut state = hash_builder.build_hasher();
+    ///   1_u32.hash(&mut state);
+    ///   state.finish()
+    /// };
+    ///
+    /// let res = map.remove_by_hash(hash, |_k, v| v == &"a");
+    /// assert_eq!(res, Some((1, "a")));
+    /// assert!(map.is_empty());
     /// ```
     pub fn remove_by_hash<F>(&mut self, hash: u64, is_match: F) -> Option<(K, V)>
     where
-        for<'b> F: Fn(&'b K) -> bool,
+        for<'b> F: Fn(&'b K, &V) -> bool,
     {
-        match self.table.find(hash, |(k, _)| is_match(k)) {
+        match self.table.find(hash, |(k, v)| is_match(k, v)) {
             Some(bucket) => Some(unsafe { self.table.remove(bucket) }),
             None => None,
         }
