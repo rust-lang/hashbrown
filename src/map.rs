@@ -1609,6 +1609,24 @@ where
         }
     }
 
+    /// Remove an entry based on its key hash and an application-supplied matching function.
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert(1, "a");
+    /// ```
+    pub fn remove_by_hash<F>(&mut self, hash: u64, is_match: F) -> Option<(K, V)>
+    where
+        for<'b> F: Fn(&'b K) -> bool,
+    {
+        match self.table.find(hash, |(k, _)| is_match(k)) {
+            Some(bucket) => Some(unsafe { self.table.remove(bucket) }),
+            None => None,
+        }
+    }
+
     /// Removes a key from the map, returning the stored key and value if the
     /// key was previously in the map.
     ///
