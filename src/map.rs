@@ -1632,7 +1632,7 @@ where
     /// ```
     pub fn remove_by_hash<F>(&mut self, hash: u64, is_match: F) -> Option<(K, V)>
     where
-        for<'b> F: Fn(&'b K, &V) -> bool,
+        F: Fn(&K, &V) -> bool,
     {
         match self.table.find(hash, |(k, v)| is_match(k, v)) {
             Some(bucket) => Some(unsafe { self.table.remove(bucket) }),
