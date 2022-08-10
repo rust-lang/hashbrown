@@ -3587,6 +3587,27 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
         unsafe { &self.elem.as_ref().1 }
     }
 
+    /// Converts the OccupiedEntry into an immutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn my_poneyland<'a>(map: &'a mut HashMap<&str, u32>) -> &'a u32 {
+    ///     map.entry("poneyland").insert(12).into_ref()
+    /// }
+    ///
+    /// assert_eq!(my_poneyland(&mut map), &12);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn into_ref(self) -> &'a V {
+        unsafe { &self.elem.as_ref().1 }
+    }
+
     /// Converts the OccupiedEntry into a mutable reference to the value in the entry
     /// with a lifetime bound to the map itself.
     ///
@@ -5252,6 +5273,27 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
         unsafe { &mut self.elem.as_mut().1 }
     }
 
+    /// Converts the OccupiedEntry into an immutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn my_poneyland<'a>(map: &'a mut HashMap<&str, u32>) -> &'a u32 {
+    ///     map.entry("poneyland").insert(12).into_ref()
+    /// }
+    ///
+    /// assert_eq!(my_poneyland(&mut map), &12);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn into_ref(self) -> &'a V {
+        unsafe { &self.elem.as_ref().1 }
+    }
+
     /// Converts the OccupiedEntry into a mutable reference to the value in the entry
     /// with a lifetime bound to the map itself.
     ///
@@ -5981,6 +6023,27 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_mut(&mut self) -> &mut V {
         unsafe { &mut self.elem.as_mut().1 }
+    }
+
+    /// Converts the OccupiedEntryRef into an immutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn my_poneyland<'a>(map: &'a mut HashMap<&str, u32>) -> &'a u32 {
+    ///     map.entry_ref("poneyland").insert(12).into_ref()
+    /// }
+    ///
+    /// assert_eq!(my_poneyland(&mut map), &12);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn into_ref(self) -> &'a V {
+        unsafe { &self.elem.as_ref().1 }
     }
 
     /// Converts the OccupiedEntryRef into a mutable reference to the value in the entry

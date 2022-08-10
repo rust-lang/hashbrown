@@ -413,6 +413,32 @@ impl<'a, K, V, A: Allocator + Clone> RustcOccupiedEntry<'a, K, V, A> {
         unsafe { &mut self.elem.as_mut().1 }
     }
 
+    /// Converts the RustcOccupiedEntry into an immutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    ///
+    /// If you need multiple references to the `RustcOccupiedEntry`, see [`get`].
+    ///
+    /// [`get`]: #method.get
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::RustcEntry;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn my_poneyland(map: &mut HashMap<&str, u32>) -> &u32 {
+    ///     map.rustc_entry("poneyland").insert(12).into_ref()
+    /// }
+    ///
+    /// assert_eq!(my_poneyland(&mut map), &12);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn into_ref(self) -> &'a V {
+        unsafe { &self.elem.as_ref().1 }
+    }
+
     /// Sets the value of the entry, and returns the entry's old value.
     ///
     /// # Examples
