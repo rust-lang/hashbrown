@@ -428,7 +428,7 @@ impl<'a, K, V, A: Allocator + Clone> RustcOccupiedEntry<'a, K, V, A> {
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
-    /// fn my_poneyland(map: &mut HashMap<&str, u32>) -> &u32 {
+    /// fn my_poneyland<'a>(map: &'a mut HashMap<&str, u32>) -> &'a u32 {
     ///     map.rustc_entry("poneyland").insert(12).into_ref()
     /// }
     ///
