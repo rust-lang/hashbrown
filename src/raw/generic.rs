@@ -19,8 +19,8 @@ type GroupWord = u64;
     not(target_arch = "wasm32"),
 ))]
 type GroupWord = u32;
-#[cfg(target_pointer_width="16")]
-type GroupWord=u16;
+#[cfg(target_pointer_width = "16")]
+type GroupWord = u16;
 
 pub type BitMaskWord = GroupWord;
 pub const BITMASK_STRIDE: usize = 8;
