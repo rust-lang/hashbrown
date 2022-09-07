@@ -1803,8 +1803,17 @@ unsafe impl<#[may_dangle] T, A: Allocator + Clone> Drop for RawTable<T, A> {
     fn drop(&mut self) {
         if !self.table.is_empty_singleton() {
             unsafe {
-                self.drop_elements();
-                self.free_buckets();
+                // Guard that provide deallocation of memory even if any panics occurs during dropping
+                let mut self_ = guard(self, |self_| {
+                    self_.free_buckets();
+                });
+
+                // This may panic but in any case the scope guard will deallocate memory of
+                // the table, leaking any elements that were not dropped yet if panic occurs.
+                //
+                // This leak is unavoidable: we can't try dropping more elements
+                // since this could lead to another panic and abort the process.
+                self_.drop_elements();
             }
         }
     }
@@ -1815,8 +1824,17 @@ impl<T, A: Allocator + Clone> Drop for RawTable<T, A> {
     fn drop(&mut self) {
         if !self.table.is_empty_singleton() {
             unsafe {
-                self.drop_elements();
-                self.free_buckets();
+                // Guard that provide deallocation of memory even if any panics occurs during dropping
+                let mut self_ = guard(self, |self_| {
+                    self_.free_buckets();
+                });
+
+                // This may panic but in any case the scope guard will deallocate memory of
+                // the table, leaking any elements that were not dropped yet if panic occurs.
+                //
+                // This leak is unavoidable: we can't try dropping more elements
+                // since this could lead to another panic and abort the process.
+                self_.drop_elements();
             }
         }
     }

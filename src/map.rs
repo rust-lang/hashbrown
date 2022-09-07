@@ -8379,4 +8379,33 @@ mod test_map {
 
         map2.clone_from(&map1);
     }
+
+    // Test that map do not leak memory if dropping function panic
+    #[test]
+    #[should_panic = "panic in drop"]
+    fn test_panic_in_drop() {
+        #[derive(Clone)]
+        struct CheckedDrop {
+            panic_in_drop: bool,
+        }
+        impl Drop for CheckedDrop {
+            fn drop(&mut self) {
+                if self.panic_in_drop {
+                    panic!("panic in drop");
+                }
+            }
+        }
+        const DISARMED: CheckedDrop = CheckedDrop {
+            panic_in_drop: false,
+        };
+        const ARMED: CheckedDrop = CheckedDrop {
+            panic_in_drop: true,
+        };
+
+        let mut map1 = HashMap::new();
+        map1.insert(1, DISARMED);
+        map1.insert(2, DISARMED);
+        map1.insert(3, ARMED);
+        map1.insert(4, DISARMED);
+    }
 }
