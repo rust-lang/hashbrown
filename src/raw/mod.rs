@@ -1044,11 +1044,11 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         // stable
         let mut array = unsafe { MaybeUninit::<[MaybeUninit<*mut T>; N]>::uninit().assume_init() };
 
-        for elememt in &mut array {
+        for element in &mut array {
             match iter.next() {
                 Some((hash, eq)) => match self.find(hash, eq) {
                     Some(bucket) => {
-                        elememt.write(bucket.as_ptr());
+                        element.write(bucket.as_ptr());
                     }
                     None => return None,
                 },
