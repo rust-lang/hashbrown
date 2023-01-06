@@ -1,6 +1,7 @@
-use super::imp::{BitMaskWord, BITMASK_MASK, BITMASK_STRIDE};
 #[cfg(feature = "nightly")]
 use core::intrinsics;
+
+use super::imp::{BitMaskWord, BITMASK_MASK, BITMASK_STRIDE};
 
 /// A bit mask which contains the result of a `Match` operation on a `Group` and
 /// allows iterating through them.

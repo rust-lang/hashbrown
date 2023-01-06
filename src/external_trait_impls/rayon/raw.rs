@@ -1,14 +1,13 @@
-use crate::raw::Bucket;
-use crate::raw::{Allocator, Global, RawIter, RawIterRange, RawTable};
-use crate::scopeguard::guard;
 use alloc::alloc::dealloc;
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;
-use rayon::iter::{
-    plumbing::{self, Folder, UnindexedConsumer, UnindexedProducer},
-    ParallelIterator,
-};
+
+use rayon::iter::plumbing::{self, Folder, UnindexedConsumer, UnindexedProducer};
+use rayon::iter::ParallelIterator;
+
+use crate::raw::{Allocator, Bucket, Global, RawIter, RawIterRange, RawTable};
+use crate::scopeguard::guard;
 
 /// Parallel iterator which returns a raw pointer to every full bucket in the table.
 pub struct RawParIter<T> {

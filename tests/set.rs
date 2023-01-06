@@ -1,8 +1,11 @@
 #![cfg(not(miri))] // FIXME: takes too long
 
-use hashbrown::HashSet;
-use rand::{distributions::Alphanumeric, rngs::SmallRng, Rng, SeedableRng};
 use std::iter;
+
+use hashbrown::HashSet;
+use rand::distributions::Alphanumeric;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 
 #[test]
 fn test_hashset_insert_remove() {

@@ -85,7 +85,6 @@ mod set;
 pub mod hash_map {
     //! A hash map implemented with quadratic probing and SIMD lookup.
     pub use crate::map::*;
-
     #[cfg(feature = "rustc-internal-api")]
     pub use crate::rustc_entry::*;
 

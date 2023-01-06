@@ -1,13 +1,12 @@
+use core::iter::FusedIterator;
+use core::marker::PhantomData;
+use core::mem::{ManuallyDrop, MaybeUninit};
+use core::ptr::NonNull;
+use core::{hint, mem, ptr};
+
 use crate::alloc::alloc::{handle_alloc_error, Layout};
 use crate::scopeguard::{guard, ScopeGuard};
 use crate::TryReserveError;
-use core::iter::FusedIterator;
-use core::marker::PhantomData;
-use core::mem;
-use core::mem::ManuallyDrop;
-use core::mem::MaybeUninit;
-use core::ptr::NonNull;
-use core::{hint, ptr};
 
 cfg_if! {
     // Use the SSE2 implementation if possible: it allows us to scan 16 buckets
@@ -37,13 +36,13 @@ pub(crate) use self::alloc::{do_alloc, Allocator, Global};
 
 mod bitmask;
 
-use self::bitmask::{BitMask, BitMaskIter};
-use self::imp::Group;
-
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
 #[cfg(feature = "nightly")]
 use core::intrinsics::{likely, unlikely};
+
+use self::bitmask::{BitMask, BitMaskIter};
+use self::imp::Group;
 
 // On stable we can use #[cold] to get a equivalent effect: this attributes
 // suggests that the function is unlikely to be called

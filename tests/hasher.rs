@@ -2,8 +2,9 @@
 
 #![cfg(not(miri))] // FIXME: takes too long
 
-use hashbrown::HashSet;
 use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
+
+use hashbrown::HashSet;
 
 fn check<S: BuildHasher + Default>() {
     let range = 0..1_000;

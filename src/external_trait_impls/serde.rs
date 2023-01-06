@@ -14,12 +14,12 @@ mod map {
     use core::fmt;
     use core::hash::{BuildHasher, Hash};
     use core::marker::PhantomData;
+
     use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
     use serde::ser::{Serialize, Serializer};
 
-    use crate::hash_map::HashMap;
-
     use super::size_hint;
+    use crate::hash_map::HashMap;
 
     impl<K, V, H> Serialize for HashMap<K, V, H>
     where
@@ -92,12 +92,12 @@ mod set {
     use core::fmt;
     use core::hash::{BuildHasher, Hash};
     use core::marker::PhantomData;
+
     use serde::de::{Deserialize, Deserializer, SeqAccess, Visitor};
     use serde::ser::{Serialize, Serializer};
 
-    use crate::hash_set::HashSet;
-
     use super::size_hint;
+    use crate::hash_set::HashSet;
 
     impl<T, H> Serialize for HashSet<T, H>
     where

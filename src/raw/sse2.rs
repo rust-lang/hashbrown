@@ -1,11 +1,11 @@
-use super::bitmask::BitMask;
-use super::EMPTY;
-use core::mem;
-
 #[cfg(target_arch = "x86")]
 use core::arch::x86;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64 as x86;
+use core::mem;
+
+use super::bitmask::BitMask;
+use super::EMPTY;
 
 pub type BitMaskWord = u16;
 pub const BITMASK_STRIDE: usize = 1;

@@ -1,5 +1,3 @@
-use crate::raw::{Allocator, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawTable};
-use crate::{Equivalent, TryReserveError};
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
 use core::hash::{BuildHasher, Hash};
@@ -7,6 +5,9 @@ use core::iter::{FromIterator, FusedIterator};
 use core::marker::PhantomData;
 use core::mem;
 use core::ops::Index;
+
+use crate::raw::{Allocator, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawTable};
+use crate::{Equivalent, TryReserveError};
 
 /// Default hasher for `HashMap`.
 #[cfg(feature = "ahash")]
@@ -6700,15 +6701,16 @@ fn assert_covariance() {
 
 #[cfg(test)]
 mod test_map {
-    use super::DefaultHashBuilder;
-    use super::Entry::{Occupied, Vacant};
-    use super::EntryRef;
-    use super::{HashMap, RawEntryMut};
-    use rand::{rngs::SmallRng, Rng, SeedableRng};
     use std::borrow::ToOwned;
     use std::cell::RefCell;
     use std::usize;
     use std::vec::Vec;
+
+    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
+
+    use super::Entry::{Occupied, Vacant};
+    use super::{DefaultHashBuilder, EntryRef, HashMap, RawEntryMut};
 
     #[test]
     fn test_zero_capacities() {

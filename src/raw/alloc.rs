@@ -2,9 +2,10 @@ pub(crate) use self::inner::{do_alloc, Allocator, Global};
 
 #[cfg(feature = "nightly")]
 mod inner {
+    use core::ptr::NonNull;
+
     use crate::alloc::alloc::Layout;
     pub use crate::alloc::alloc::{Allocator, Global};
-    use core::ptr::NonNull;
 
     #[allow(clippy::map_err_ignore)]
     pub fn do_alloc<A: Allocator>(alloc: &A, layout: Layout) -> Result<NonNull<u8>, ()> {
@@ -30,8 +31,9 @@ mod inner {
 
 #[cfg(not(feature = "nightly"))]
 mod inner {
-    use crate::alloc::alloc::{alloc, dealloc, Layout};
     use core::ptr::NonNull;
+
+    use crate::alloc::alloc::{alloc, dealloc, Layout};
 
     #[allow(clippy::missing_safety_doc)] // not exposed outside of this crate
     pub unsafe trait Allocator {

@@ -1,15 +1,14 @@
-#[cfg(feature = "raw")]
-use crate::raw::RawTable;
-use crate::{Equivalent, TryReserveError};
 use alloc::borrow::ToOwned;
-use core::fmt;
 use core::hash::{BuildHasher, Hash};
 use core::iter::{Chain, FromIterator, FusedIterator};
-use core::mem;
 use core::ops::{BitAnd, BitOr, BitXor, Sub};
+use core::{fmt, mem};
 
 use super::map::{self, ConsumeAllOnDrop, DefaultHashBuilder, DrainFilterInner, HashMap, Keys};
+#[cfg(feature = "raw")]
+use crate::raw::RawTable;
 use crate::raw::{Allocator, Global};
+use crate::{Equivalent, TryReserveError};
 
 // Future Optimization (FIXME!)
 // =============================
@@ -2428,9 +2427,10 @@ fn assert_covariance() {
 
 #[cfg(test)]
 mod test_set {
+    use std::vec::Vec;
+
     use super::super::map::DefaultHashBuilder;
     use super::HashSet;
-    use std::vec::Vec;
 
     #[test]
     fn test_zero_capacities() {

@@ -6,14 +6,12 @@
 
 extern crate test;
 
-use test::{black_box, Bencher};
+use std::collections::hash_map::RandomState;
+use std::sync::atomic::{self, AtomicUsize};
 
 use hashbrown::hash_map::DefaultHashBuilder;
 use hashbrown::{HashMap, HashSet};
-use std::{
-    collections::hash_map::RandomState,
-    sync::atomic::{self, AtomicUsize},
-};
+use test::{black_box, Bencher};
 
 const SIZE: usize = 1000;
 

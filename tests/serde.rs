@@ -1,6 +1,7 @@
 #![cfg(feature = "serde")]
 
 use core::hash::BuildHasherDefault;
+
 use fnv::FnvHasher;
 use hashbrown::{HashMap, HashSet};
 use serde_test::{assert_tokens, Token};
