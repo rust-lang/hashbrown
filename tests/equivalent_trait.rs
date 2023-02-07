@@ -16,13 +16,13 @@ where
     }
 }
 
-impl<A, B, X> Equivalent<X> for Pair<A, B>
+impl<A, B, X> Equivalent<X> for &Pair<A, B>
 where
     Pair<A, B>: PartialEq<X>,
     A: Hash + Eq,
     B: Hash + Eq,
 {
-    fn equivalent(&self, other: &X) -> bool {
+    fn equivalent(self, other: &X) -> bool {
         *self == *other
     }
 }
@@ -50,4 +50,33 @@ fn test_string_str() {
     assert!(map.contains_key("a"));
     assert!(!map.contains_key("z"));
     assert_eq!(map.remove("b"), Some(2));
+}
+
+#[derive(Copy, Clone)]
+struct BytesAsStringRef<'a>(&'a [u8]);
+
+impl<'a> std::hash::Hash for BytesAsStringRef<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // We have to hash exactly like a string, or else lookups will fail
+        if let Ok(s) = std::str::from_utf8(self.0) {
+            s.hash(state);
+        }
+        // else doesn't matter -- it can't be equivalent to a string anyway
+    }
+}
+
+impl<'a> Equivalent<String> for BytesAsStringRef<'a> {
+    fn equivalent(self, key: &String) -> bool {
+        self.0 == key.as_bytes()
+    }
+}
+
+#[test]
+fn test_bytes_as_str() {
+    let mut map: HashMap<String, i32> = HashMap::new();
+    assert_eq!(map.get("123"), None);
+    assert_eq!(map.get(BytesAsStringRef(b"123")), None);
+    map.insert(String::from("123"), 123);
+    assert_eq!(map.get("123"), Some(&123));
+    assert_eq!(map.get(BytesAsStringRef(b"123")), Some(&123));
 }

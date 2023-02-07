@@ -128,7 +128,7 @@ pub use crate::set::HashSet;
 /// # Correctness
 ///
 /// Equivalent values must hash to the same value.
-pub trait Equivalent<K: ?Sized> {
+pub trait Equivalent<K: ?Sized>: Copy {
     /// Checks if this value is equivalent to the given key.
     ///
     /// Returns `true` if both values are equivalent, and `false` otherwise.
@@ -137,16 +137,16 @@ pub trait Equivalent<K: ?Sized> {
     ///
     /// When this function returns `true`, both `self` and `key` must hash to
     /// the same value.
-    fn equivalent(&self, key: &K) -> bool;
+    fn equivalent(self, key: &K) -> bool;
 }
 
-impl<Q: ?Sized, K: ?Sized> Equivalent<K> for Q
+impl<Q: ?Sized, K: ?Sized> Equivalent<K> for &Q
 where
     Q: Eq,
     K: core::borrow::Borrow<Q>,
 {
-    fn equivalent(&self, key: &K) -> bool {
-        self == key.borrow()
+    fn equivalent(self, key: &K) -> bool {
+        Q::eq(self, key.borrow())
     }
 }
 
