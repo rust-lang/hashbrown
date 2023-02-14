@@ -983,6 +983,45 @@ where
             .0
     }
 
+    /// Inserts a value computed from `f` into the set if the given `value` is
+    /// not present, then returns a reference to the value in the set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashSet;
+    ///
+    /// let mut set: HashSet<String> = ["cat", "dog", "horse"]
+    ///     .iter().map(|&pet| pet.to_owned()).collect();
+    ///
+    /// assert_eq!(set.len(), 3);
+    /// {
+    ///     let mut pet = String::from("cat");
+    ///     let value = set.get_or_insert_with_mut(&mut pet, |x| std::mem::take(x));
+    ///     assert!(!pet.is_empty()); // string contents were not taken because the value was present
+    /// }
+    /// {
+    ///     let mut pet = String::from("fish");
+    ///     let value = set.get_or_insert_with_mut(&mut pet, |x| std::mem::take(x));
+    ///     assert!(pet.is_empty()); // string contents were taken
+    ///     assert_eq!(set.len(), 4); // a new "fish" was inserted
+    /// }
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn get_or_insert_with_mut<Q: ?Sized, F>(&mut self, value: &mut Q, f: F) -> &T
+    where
+        Q: Hash + Equivalent<T>,
+        F: FnOnce(&mut Q) -> T,
+    {
+        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
+        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
+        self.map
+            .raw_entry_mut()
+            .from_key(value)
+            .or_insert_with(|| (f(value), ()))
+            .0
+    }
+
     /// Gets the given value's corresponding entry in the set for in-place manipulation.
     ///
     /// # Examples
