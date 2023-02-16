@@ -951,7 +951,8 @@ where
     }
 
     /// Inserts a value computed from `f` into the set if the given `value` is
-    /// not present, then returns a reference to the value in the set.
+    /// not present, then returns a reference to the value in the set. The value
+    /// computed by `f` should have the same hash and compare equivalent to `value`.
     ///
     /// # Examples
     ///
@@ -984,7 +985,8 @@ where
     }
 
     /// Inserts a value computed from `f` into the set if the given `value` is
-    /// not present, then returns a reference to the value in the set.
+    /// not present, then returns a reference to the value in the set. The value
+    /// computed by `f` should have the same hash and compare equivalent to `value`.
     ///
     /// # Examples
     ///
