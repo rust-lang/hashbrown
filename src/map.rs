@@ -4132,6 +4132,11 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
             hash_builder: self.hash_builder,
         }
     }
+
+    #[inline]
+    pub(crate) fn hasher(&self) -> &S {
+        self.hash_builder
+    }
 }
 
 impl<K, V, S, A: Allocator + Clone> Debug for RawEntryBuilderMut<'_, K, V, S, A> {
