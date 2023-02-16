@@ -1002,7 +1002,7 @@ where
             RawEntryMut::Vacant(entry) => {
                 let insert_value = f(value);
                 let insert_value_hash = make_insert_hash::<T, S>(entry.hasher(), &insert_value);
-                if !(hash == insert_value_hash && value.equivalent(&insert_value)) {
+                if hash != insert_value_hash || !value.equivalent(&insert_value) {
                     assert_failed();
                 }
                 entry
