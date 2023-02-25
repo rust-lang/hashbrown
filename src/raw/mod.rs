@@ -1,6 +1,7 @@
 use crate::alloc::alloc::{handle_alloc_error, Layout};
 use crate::scopeguard::{guard, ScopeGuard};
 use crate::TryReserveError;
+use core::cmp::Ordering;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem;
@@ -39,6 +40,11 @@ mod bitmask;
 
 use self::bitmask::{BitMask, BitMaskIter};
 use self::imp::Group;
+
+mod array;
+
+pub use self::array::ArrayIter;
+use self::array::ArrayIterBuilder;
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -288,6 +294,32 @@ pub struct Bucket<T> {
 // This Send impl is needed for rayon support. This is safe since Bucket is
 // never exposed in a public API.
 unsafe impl<T> Send for Bucket<T> {}
+
+impl<T> PartialEq for Bucket<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        // Comparing `ptr: NonNull<T>` directly since T can be ZST
+        self.ptr.as_ptr() == other.ptr.as_ptr()
+    }
+}
+
+impl<T> Eq for Bucket<T> {}
+
+impl<T> Ord for Bucket<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Comparing `ptr: NonNull<T>` directly since T can be ZST
+        self.ptr.as_ptr().cmp(&other.ptr.as_ptr())
+    }
+}
+
+impl<T> PartialOrd for Bucket<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // Comparing `ptr: NonNull<T>` directly since T can be ZST
+        self.ptr.as_ptr().partial_cmp(&other.ptr.as_ptr())
+    }
+}
 
 impl<T> Clone for Bucket<T> {
     #[inline]
@@ -1272,6 +1304,133 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
             Some(bucket) => Some(unsafe { bucket.as_mut() }),
             None => None,
         }
+    }
+
+    /// Attempts to get mutable references to `N` entries in the table at once using
+    /// `hash` and equality function from iterator.
+    ///
+    /// Returns an [`ArrayIter`] of length `N` with the results of each query.
+    ///
+    /// At most one mutable reference will be returned to any entry.
+    /// Duplicate values will be skipped.
+    ///
+    /// The `iter` argument should be an iterator that return `hash` of the stored
+    /// `element` and closure for checking the equivalence of that `element`.
+    ///
+    /// The order of elements in the returned iterator may not be the same as the order of
+    /// elements in lookup iterator `iter: &mut I`.
+    ///
+    /// Also, if `N` is less than the length of the iterator, the iterator will still be valid
+    /// and may continue to be used, in which case it will continue iterating from the element
+    /// remaining immediately after receiving `N` successful queries.
+    pub(crate) fn try_get_many_mut<'a, I, F, const N: usize>(
+        &'a mut self,
+        iter: &mut I,
+    ) -> ArrayIter<&'a mut T, N>
+    where
+        I: Iterator<Item = (u64, F)>,
+        F: FnMut(&T) -> bool,
+    {
+        if N == 0 {
+            // SAFETY: An empty array is always inhabited and has no validity invariants.
+            return ArrayIterBuilder::<&mut T, N>::new().build();
+        }
+
+        let mut builder = ArrayIterBuilder::<Bucket<T>, N>::new();
+
+        for (hash, eq) in iter {
+            if let Some(bucket) = self.find(hash, eq) {
+                // SAFETY:
+                // 1. `N` is greater than 0, which was checked above
+                // 2. We break the loop immediately after initializing all elements
+                //    (it's okay if we haven't initialized all the elements, but overflow
+                //    must not be allowed)
+                unsafe { builder.push_unchecked(bucket) }
+                if builder.is_initialized() {
+                    break;
+                }
+            }
+        }
+
+        let mut array_iter = builder.build();
+        array_iter.as_mut_slice().sort_unstable();
+
+        let mut out_builder = ArrayIterBuilder::<&mut T, N>::new();
+
+        if let Some(mut cur_ptr) = array_iter.next() {
+            // SAFETY:
+            // 1. `N` is greater than 0, which was checked above
+            // 2. One pointer is always unique.
+            // 3. We got all buckets from the `find` function, so they are valid.
+            unsafe { out_builder.push_unchecked(cur_ptr.as_mut()) };
+
+            for next_ptr in array_iter {
+                if cur_ptr != next_ptr {
+                    // SAFETY:
+                    // 1. The `array_iter` length is equal or less than `out_guard` length.
+                    // 2. We have just verified that this is a unique pointer that does not
+                    //    repeat within the array.
+                    // 3. We got all buckets from the `find` function, so they are valid.
+                    unsafe { out_builder.push_unchecked(next_ptr.as_mut()) };
+                    cur_ptr = next_ptr;
+                }
+            }
+        }
+        out_builder.build()
+    }
+
+    /// Attempts to get mutable references to `N` entries in the table at once using
+    /// `hash` and equality function from iterator.
+    ///
+    /// Returns an [`ArrayIter`] of length `N` with the results of each query.
+    ///
+    /// The `iter` argument should be an iterator that return `hash` of the stored
+    /// `element` and closure for checking the equivalence of that `element`.
+    ///
+    /// The order of the elements in the returned iterator is the same as the order of the
+    /// elements in the search iterator `iter: &mut I`, except for elements that were not found.
+    ///
+    /// Also, if `N` is less than the length of the iterator, the iterator will still be valid
+    /// and may continue to be used, in which case it will continue iterating from the element
+    /// remaining immediately after receiving `N` successful queries.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method is *[undefined behavior]* if iterator contain overlapping
+    /// items that refer to the same `elements` in the table even if the resulting
+    /// references to `elements` in the table are not used.
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    pub(crate) unsafe fn try_get_many_mut_unchecked<'a, I, F, const N: usize>(
+        &'a mut self,
+        iter: &mut I,
+    ) -> ArrayIter<&'a mut T, N>
+    where
+        I: Iterator<Item = (u64, F)>,
+        F: FnMut(&T) -> bool,
+    {
+        if N == 0 {
+            // SAFETY: An empty array is always inhabited and has no validity invariants.
+            return ArrayIterBuilder::<&mut T, N>::new().build();
+        }
+
+        let mut builder = ArrayIterBuilder::<&mut T, N>::new();
+
+        for (hash, eq) in iter {
+            if let Some(bucket) = self.find(hash, eq) {
+                // SAFETY:
+                // 1. `N` is greater than 0, which was checked above
+                // 2. We break the loop immediately after initializing all elements
+                //    (it's okay if we haven't initialized all the elements, but overflow
+                //    must not be allowed)
+                // 3. The caller must uphold the safety contract for `try_get_many_mut_unchecked`.
+                unsafe { builder.push_unchecked(bucket.as_mut()) }
+                if builder.is_initialized() {
+                    break;
+                }
+            }
+        }
+        builder.build()
     }
 
     /// Attempts to get mutable references to `N` entries in the table at once.

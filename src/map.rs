@@ -1,4 +1,4 @@
-use crate::raw::{Allocator, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawTable};
+use crate::raw::{Allocator, ArrayIter, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawTable};
 use crate::{Equivalent, TryReserveError};
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
@@ -1669,6 +1669,40 @@ where
     }
 
     /// Attempts to get mutable references to `N` values in the map at once, with immutable
+    /// references to the corresponding keys.
+    ///
+    /// Returns an [`ArrayIter`] of length `N` with the results of each query. For soundness,
+    /// at most one mutable reference will be returned to any value. All duplicated keys will
+    /// be ignored.
+    ///
+    /// The order of elements in the returned iterator may not be the same as the order of
+    /// elements in lookup iterator `iter: &mut I`.
+    ///
+    /// Also, if `N` is less than the length of the iterator, the iterator will still be valid
+    /// and may continue to be used, in which case it will continue iterating from the element
+    /// remaining immediately after receiving `N` successful queries.
+    pub fn try_get_many_key_value_mut<'a, Q, I, const N: usize>(
+        &mut self,
+        iter: &mut I,
+    ) -> ArrayIter<(&K, &mut V), N>
+    where
+        I: Iterator<Item = &'a Q>,
+        Q: ?Sized + Hash + Equivalent<K> + 'a,
+    {
+        let hash_builder = &self.hash_builder;
+
+        let mut iter = iter.map(|key| {
+            (
+                make_hash::<Q, S>(hash_builder, key),
+                equivalent_key::<Q, K, V>(key),
+            )
+        });
+        self.table
+            .try_get_many_mut(&mut iter)
+            .convert(|(ref k, v)| (k, v))
+    }
+
+    /// Attempts to get mutable references to `N` values in the map at once, with immutable
     /// references to the corresponding keys, without validating that the values are unique.
     ///
     /// Returns an array of length `N` with the results of each query. `None` will be returned if
@@ -1721,6 +1755,46 @@ where
     {
         self.get_many_unchecked_mut_inner(ks)
             .map(|res| res.map(|(k, v)| (&*k, v)))
+    }
+
+    /// Attempts to get mutable references to `N` values in the map at once, with immutable
+    /// references to the corresponding keys.
+    ///
+    /// Returns an [`ArrayIter`] of length `N` with the results of each query.
+    ///
+    /// The order of the elements in the returned iterator is the same as the order of the
+    /// elements in the search iterator `iter: &mut I`, except for elements that were not found.
+    ///
+    /// Also, if `N` is less than the length of the iterator, the iterator will still be valid
+    /// and may continue to be used, in which case it will continue iterating from the element
+    /// remaining immediately after receiving `N` successful queries.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method is *[undefined behavior]* if iterator contain overlapping
+    /// items that refer to the same `elements` in the table even if the resulting
+    /// references to `elements` in the table are not used.
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    pub unsafe fn try_get_many_key_value_unchecked_mut<'a, Q, I, const N: usize>(
+        &mut self,
+        iter: &mut I,
+    ) -> ArrayIter<(&K, &mut V), N>
+    where
+        I: Iterator<Item = &'a Q>,
+        Q: ?Sized + Hash + Equivalent<K> + 'a,
+    {
+        let hash_builder = &self.hash_builder;
+
+        let mut iter = iter.map(|key| {
+            (
+                make_hash::<Q, S>(hash_builder, key),
+                equivalent_key::<Q, K, V>(key),
+            )
+        });
+        self.table
+            .try_get_many_mut_unchecked(&mut iter)
+            .convert(|(ref k, v)| (k, v))
     }
 
     fn get_many_mut_inner<Q: ?Sized, const N: usize>(
