@@ -1291,13 +1291,13 @@ where
     /// use hashbrown::HashMap;
     ///
     /// let mut words: HashMap<String, usize> = HashMap::new();
-    /// let source = ["poneyland", "horseyland", "poneyland", "poneyland"];
+    /// let source = ["ponyland", "horseyland", "ponyland", "ponyland"];
     /// for (i, &s) in source.iter().enumerate() {
     ///     let counter = words.entry_ref(s).or_insert(0);
     ///     *counter += 1;
     /// }
     ///
-    /// assert_eq!(words["poneyland"], 3);
+    /// assert_eq!(words["ponyland"], 3);
     /// assert_eq!(words["horseyland"], 1);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
@@ -3445,11 +3445,11 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
-    /// map.raw_entry_mut().from_key("poneyland").or_insert("poneyland", 3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.raw_entry_mut().from_key("ponyland").or_insert("ponyland", 3);
+    /// assert_eq!(map["ponyland"], 3);
     ///
-    /// *map.raw_entry_mut().from_key("poneyland").or_insert("poneyland", 10).1 *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// *map.raw_entry_mut().from_key("ponyland").or_insert("ponyland", 10).1 *= 2;
+    /// assert_eq!(map["ponyland"], 6);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert(self, default_key: K, default_val: V) -> (&'a mut K, &'a mut V)
@@ -3473,11 +3473,11 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, String> = HashMap::new();
     ///
-    /// map.raw_entry_mut().from_key("poneyland").or_insert_with(|| {
-    ///     ("poneyland", "hoho".to_string())
+    /// map.raw_entry_mut().from_key("ponyland").or_insert_with(|| {
+    ///     ("ponyland", "hoho".to_string())
     /// });
     ///
-    /// assert_eq!(map["poneyland"], "hoho".to_string());
+    /// assert_eq!(map["ponyland"], "hoho".to_string());
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert_with<F>(self, default: F) -> (&'a mut K, &'a mut V)
@@ -3506,16 +3506,16 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
     /// map.raw_entry_mut()
-    ///    .from_key("poneyland")
+    ///    .from_key("ponyland")
     ///    .and_modify(|_k, v| { *v += 1 })
-    ///    .or_insert("poneyland", 42);
-    /// assert_eq!(map["poneyland"], 42);
+    ///    .or_insert("ponyland", 42);
+    /// assert_eq!(map["ponyland"], 42);
     ///
     /// map.raw_entry_mut()
-    ///    .from_key("poneyland")
+    ///    .from_key("ponyland")
     ///    .and_modify(|_k, v| { *v += 1 })
-    ///    .or_insert("poneyland", 0);
-    /// assert_eq!(map["poneyland"], 43);
+    ///    .or_insert("ponyland", 0);
+    /// assert_eq!(map["ponyland"], 43);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_modify<F>(self, f: F) -> Self
@@ -3548,7 +3548,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     ///
     /// let entry = map
     ///     .raw_entry_mut()
-    ///     .from_key("poneyland")
+    ///     .from_key("ponyland")
     ///     .and_replace_entry_with(|_k, _v| panic!());
     ///
     /// match entry {
@@ -3556,30 +3556,30 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     ///     RawEntryMut::Occupied(_) => panic!(),
     /// }
     ///
-    /// map.insert("poneyland", 42);
+    /// map.insert("ponyland", 42);
     ///
     /// let entry = map
     ///     .raw_entry_mut()
-    ///     .from_key("poneyland")
+    ///     .from_key("ponyland")
     ///     .and_replace_entry_with(|k, v| {
-    ///         assert_eq!(k, &"poneyland");
+    ///         assert_eq!(k, &"ponyland");
     ///         assert_eq!(v, 42);
     ///         Some(v + 1)
     ///     });
     ///
     /// match entry {
     ///     RawEntryMut::Occupied(e) => {
-    ///         assert_eq!(e.key(), &"poneyland");
+    ///         assert_eq!(e.key(), &"ponyland");
     ///         assert_eq!(e.get(), &43);
     ///     },
     ///     RawEntryMut::Vacant(_) => panic!(),
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     ///
     /// let entry = map
     ///     .raw_entry_mut()
-    ///     .from_key("poneyland")
+    ///     .from_key("ponyland")
     ///     .and_replace_entry_with(|_k, _v| None);
     ///
     /// match entry {
@@ -3587,7 +3587,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
     ///     RawEntryMut::Occupied(_) => panic!(),
     /// }
     ///
-    /// assert!(!map.contains_key("poneyland"));
+    /// assert!(!map.contains_key("ponyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_replace_entry_with<F>(self, f: F) -> Self
@@ -5025,12 +5025,12 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry("poneyland").or_insert(3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.entry("ponyland").or_insert(3);
+    /// assert_eq!(map["ponyland"], 3);
     ///
     /// // existing key
-    /// *map.entry("poneyland").or_insert(10) *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// *map.entry("ponyland").or_insert(10) *= 2;
+    /// assert_eq!(map["ponyland"], 6);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert(self, default: V) -> &'a mut V
@@ -5055,12 +5055,12 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry("poneyland").or_insert_with(|| 3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.entry("ponyland").or_insert_with(|| 3);
+    /// assert_eq!(map["ponyland"], 3);
     ///
     /// // existing key
-    /// *map.entry("poneyland").or_insert_with(|| 10) *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// *map.entry("ponyland").or_insert_with(|| 10) *= 2;
+    /// assert_eq!(map["ponyland"], 6);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V
@@ -5089,12 +5089,12 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, usize> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry("poneyland").or_insert_with_key(|key| key.chars().count());
-    /// assert_eq!(map["poneyland"], 9);
+    /// map.entry("ponyland").or_insert_with_key(|key| key.chars().count());
+    /// assert_eq!(map["ponyland"], 9);
     ///
     /// // existing key
-    /// *map.entry("poneyland").or_insert_with_key(|key| key.chars().count() * 10) *= 2;
-    /// assert_eq!(map["poneyland"], 18);
+    /// *map.entry("ponyland").or_insert_with_key(|key| key.chars().count() * 10) *= 2;
+    /// assert_eq!(map["ponyland"], 18);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert_with_key<F: FnOnce(&K) -> V>(self, default: F) -> &'a mut V
@@ -5119,9 +5119,9 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// use hashbrown::HashMap;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(3);
+    /// map.entry("ponyland").or_insert(3);
     /// // existing key
-    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// assert_eq!(map.entry("ponyland").key(), &"ponyland");
     /// // nonexistent key
     /// assert_eq!(map.entry("horseland").key(), &"horseland");
     /// ```
@@ -5143,15 +5143,15 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
-    /// map.entry("poneyland")
+    /// map.entry("ponyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 42);
+    /// assert_eq!(map["ponyland"], 42);
     ///
-    /// map.entry("poneyland")
+    /// map.entry("ponyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_modify<F>(self, f: F) -> Self
@@ -5180,46 +5180,46 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
     /// let entry = map
-    ///     .entry("poneyland")
+    ///     .entry("ponyland")
     ///     .and_replace_entry_with(|_k, _v| panic!());
     ///
     /// match entry {
     ///     Entry::Vacant(e) => {
-    ///         assert_eq!(e.key(), &"poneyland");
+    ///         assert_eq!(e.key(), &"ponyland");
     ///     }
     ///     Entry::Occupied(_) => panic!(),
     /// }
     ///
-    /// map.insert("poneyland", 42);
+    /// map.insert("ponyland", 42);
     ///
     /// let entry = map
-    ///     .entry("poneyland")
+    ///     .entry("ponyland")
     ///     .and_replace_entry_with(|k, v| {
-    ///         assert_eq!(k, &"poneyland");
+    ///         assert_eq!(k, &"ponyland");
     ///         assert_eq!(v, 42);
     ///         Some(v + 1)
     ///     });
     ///
     /// match entry {
     ///     Entry::Occupied(e) => {
-    ///         assert_eq!(e.key(), &"poneyland");
+    ///         assert_eq!(e.key(), &"ponyland");
     ///         assert_eq!(e.get(), &43);
     ///     }
     ///     Entry::Vacant(_) => panic!(),
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     ///
     /// let entry = map
-    ///     .entry("poneyland")
+    ///     .entry("ponyland")
     ///     .and_replace_entry_with(|_k, _v| None);
     ///
     /// match entry {
-    ///     Entry::Vacant(e) => assert_eq!(e.key(), &"poneyland"),
+    ///     Entry::Vacant(e) => assert_eq!(e.key(), &"ponyland"),
     ///     Entry::Occupied(_) => panic!(),
     /// }
     ///
-    /// assert!(!map.contains_key("poneyland"));
+    /// assert!(!map.contains_key("ponyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_replace_entry_with<F>(self, f: F) -> Self
@@ -5245,8 +5245,8 @@ impl<'a, K, V: Default, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, Option<u32>> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry("poneyland").or_default();
-    /// assert_eq!(map["poneyland"], None);
+    /// map.entry("ponyland").or_default();
+    /// assert_eq!(map["ponyland"], None);
     ///
     /// map.insert("horseland", Some(3));
     ///
@@ -5275,11 +5275,11 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::{Entry, HashMap};
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// match map.entry("poneyland") {
+    /// match map.entry("ponyland") {
     ///     Entry::Vacant(_) => panic!(),
-    ///     Entry::Occupied(entry) => assert_eq!(entry.key(), &"poneyland"),
+    ///     Entry::Occupied(entry) => assert_eq!(entry.key(), &"ponyland"),
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
@@ -5300,14 +5300,14 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// // The map is empty
     /// assert!(map.is_empty() && map.capacity() == 0);
     ///
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(o) = map.entry("ponyland") {
     ///     // We delete the entry from the map.
-    ///     assert_eq!(o.remove_entry(), ("poneyland", 12));
+    ///     assert_eq!(o.remove_entry(), ("ponyland", 12));
     /// }
     ///
-    /// assert_eq!(map.contains_key("poneyland"), false);
+    /// assert_eq!(map.contains_key("ponyland"), false);
     /// // Now map hold none elements
     /// assert!(map.is_empty());
     /// ```
@@ -5325,9 +5325,9 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::Entry;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// match map.entry("poneyland") {
+    /// match map.entry("ponyland") {
     ///     Entry::Vacant(_) => panic!(),
     ///     Entry::Occupied(entry) => assert_eq!(entry.get(), &12),
     /// }
@@ -5351,10 +5351,10 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::Entry;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
-    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    /// assert_eq!(map["ponyland"], 12);
+    /// if let Entry::Occupied(mut o) = map.entry("ponyland") {
     ///     *o.get_mut() += 10;
     ///     assert_eq!(*o.get(), 22);
     ///
@@ -5362,7 +5362,7 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     ///     *o.get_mut() += 2;
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 24);
+    /// assert_eq!(map["ponyland"], 24);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_mut(&mut self) -> &mut V {
@@ -5382,18 +5382,18 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::{Entry, HashMap};
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
+    /// assert_eq!(map["ponyland"], 12);
     ///
     /// let value: &mut u32;
-    /// match map.entry("poneyland") {
+    /// match map.entry("ponyland") {
     ///     Entry::Occupied(entry) => value = entry.into_mut(),
     ///     Entry::Vacant(_) => panic!(),
     /// }
     /// *value += 10;
     ///
-    /// assert_eq!(map["poneyland"], 22);
+    /// assert_eq!(map["ponyland"], 22);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_mut(self) -> &'a mut V {
@@ -5409,13 +5409,13 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::Entry;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(mut o) = map.entry("ponyland") {
     ///     assert_eq!(o.insert(15), 12);
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 15);
+    /// assert_eq!(map["ponyland"], 15);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(&mut self, value: V) -> V {
@@ -5435,13 +5435,13 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// // The map is empty
     /// assert!(map.is_empty() && map.capacity() == 0);
     ///
-    /// map.entry("poneyland").or_insert(12);
+    /// map.entry("ponyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(o) = map.entry("ponyland") {
     ///     assert_eq!(o.remove(), 12);
     /// }
     ///
-    /// assert_eq!(map.contains_key("poneyland"), false);
+    /// assert_eq!(map.contains_key("ponyland"), false);
     /// // Now map hold none elements
     /// assert!(map.is_empty());
     /// ```
@@ -5552,12 +5552,12 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// use hashbrown::hash_map::Entry;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// map.insert("poneyland", 42);
+    /// map.insert("ponyland", 42);
     ///
-    /// let entry = match map.entry("poneyland") {
+    /// let entry = match map.entry("ponyland") {
     ///     Entry::Occupied(e) => {
     ///         e.replace_entry_with(|k, v| {
-    ///             assert_eq!(k, &"poneyland");
+    ///             assert_eq!(k, &"ponyland");
     ///             assert_eq!(v, 42);
     ///             Some(v + 1)
     ///         })
@@ -5567,27 +5567,27 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     ///
     /// match entry {
     ///     Entry::Occupied(e) => {
-    ///         assert_eq!(e.key(), &"poneyland");
+    ///         assert_eq!(e.key(), &"ponyland");
     ///         assert_eq!(e.get(), &43);
     ///     }
     ///     Entry::Vacant(_) => panic!(),
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     ///
-    /// let entry = match map.entry("poneyland") {
+    /// let entry = match map.entry("ponyland") {
     ///     Entry::Occupied(e) => e.replace_entry_with(|_k, _v| None),
     ///     Entry::Vacant(_) => panic!(),
     /// };
     ///
     /// match entry {
     ///     Entry::Vacant(e) => {
-    ///         assert_eq!(e.key(), &"poneyland");
+    ///         assert_eq!(e.key(), &"ponyland");
     ///     }
     ///     Entry::Occupied(_) => panic!(),
     /// }
     ///
-    /// assert!(!map.contains_key("poneyland"));
+    /// assert!(!map.contains_key("ponyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn replace_entry_with<F>(self, f: F) -> Entry<'a, K, V, S, A>
@@ -5631,7 +5631,7 @@ impl<'a, K, V, S, A: Allocator + Clone> VacantEntry<'a, K, V, S, A> {
     /// use hashbrown::HashMap;
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
-    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// assert_eq!(map.entry("ponyland").key(), &"ponyland");
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn key(&self) -> &K {
@@ -5647,9 +5647,9 @@ impl<'a, K, V, S, A: Allocator + Clone> VacantEntry<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
-    /// match map.entry("poneyland") {
+    /// match map.entry("ponyland") {
     ///     Entry::Occupied(_) => panic!(),
-    ///     Entry::Vacant(v) => assert_eq!(v.into_key(), "poneyland"),
+    ///     Entry::Vacant(v) => assert_eq!(v.into_key(), "ponyland"),
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
@@ -5668,10 +5668,10 @@ impl<'a, K, V, S, A: Allocator + Clone> VacantEntry<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     ///
-    /// if let Entry::Vacant(o) = map.entry("poneyland") {
+    /// if let Entry::Vacant(o) = map.entry("ponyland") {
     ///     o.insert(37);
     /// }
-    /// assert_eq!(map["poneyland"], 37);
+    /// assert_eq!(map["ponyland"], 37);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(self, value: V) -> &'a mut V
@@ -5747,12 +5747,12 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     /// let mut map: HashMap<String, u32> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry_ref("poneyland").or_insert(3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.entry_ref("ponyland").or_insert(3);
+    /// assert_eq!(map["ponyland"], 3);
     ///
     /// // existing key
-    /// *map.entry_ref("poneyland").or_insert(10) *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// *map.entry_ref("ponyland").or_insert(10) *= 2;
+    /// assert_eq!(map["ponyland"], 6);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert(self, default: V) -> &'a mut V
@@ -5777,12 +5777,12 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     /// let mut map: HashMap<String, u32> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry_ref("poneyland").or_insert_with(|| 3);
-    /// assert_eq!(map["poneyland"], 3);
+    /// map.entry_ref("ponyland").or_insert_with(|| 3);
+    /// assert_eq!(map["ponyland"], 3);
     ///
     /// // existing key
-    /// *map.entry_ref("poneyland").or_insert_with(|| 10) *= 2;
-    /// assert_eq!(map["poneyland"], 6);
+    /// *map.entry_ref("ponyland").or_insert_with(|| 10) *= 2;
+    /// assert_eq!(map["ponyland"], 6);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V
@@ -5808,12 +5808,12 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     /// let mut map: HashMap<String, usize> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry_ref("poneyland").or_insert_with_key(|key| key.chars().count());
-    /// assert_eq!(map["poneyland"], 9);
+    /// map.entry_ref("ponyland").or_insert_with_key(|key| key.chars().count());
+    /// assert_eq!(map["ponyland"], 9);
     ///
     /// // existing key
-    /// *map.entry_ref("poneyland").or_insert_with_key(|key| key.chars().count() * 10) *= 2;
-    /// assert_eq!(map["poneyland"], 18);
+    /// *map.entry_ref("ponyland").or_insert_with_key(|key| key.chars().count() * 10) *= 2;
+    /// assert_eq!(map["ponyland"], 18);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn or_insert_with_key<F: FnOnce(&Q) -> V>(self, default: F) -> &'a mut V
@@ -5838,9 +5838,9 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     /// use hashbrown::HashMap;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(3);
+    /// map.entry_ref("ponyland").or_insert(3);
     /// // existing key
-    /// assert_eq!(map.entry_ref("poneyland").key(), "poneyland");
+    /// assert_eq!(map.entry_ref("ponyland").key(), "ponyland");
     /// // nonexistent key
     /// assert_eq!(map.entry_ref("horseland").key(), "horseland");
     /// ```
@@ -5865,15 +5865,15 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
     ///
-    /// map.entry_ref("poneyland")
+    /// map.entry_ref("ponyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 42);
+    /// assert_eq!(map["ponyland"], 42);
     ///
-    /// map.entry_ref("poneyland")
+    /// map.entry_ref("ponyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_modify<F>(self, f: F) -> Self
@@ -5902,46 +5902,46 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     /// let mut map: HashMap<String, u32> = HashMap::new();
     ///
     /// let entry = map
-    ///     .entry_ref("poneyland")
+    ///     .entry_ref("ponyland")
     ///     .and_replace_entry_with(|_k, _v| panic!());
     ///
     /// match entry {
     ///     EntryRef::Vacant(e) => {
-    ///         assert_eq!(e.key(), "poneyland");
+    ///         assert_eq!(e.key(), "ponyland");
     ///     }
     ///     EntryRef::Occupied(_) => panic!(),
     /// }
     ///
-    /// map.insert("poneyland".to_string(), 42);
+    /// map.insert("ponyland".to_string(), 42);
     ///
     /// let entry = map
-    ///     .entry_ref("poneyland")
+    ///     .entry_ref("ponyland")
     ///     .and_replace_entry_with(|k, v| {
-    ///         assert_eq!(k, "poneyland");
+    ///         assert_eq!(k, "ponyland");
     ///         assert_eq!(v, 42);
     ///         Some(v + 1)
     ///     });
     ///
     /// match entry {
     ///     EntryRef::Occupied(e) => {
-    ///         assert_eq!(e.key(), "poneyland");
+    ///         assert_eq!(e.key(), "ponyland");
     ///         assert_eq!(e.get(), &43);
     ///     }
     ///     EntryRef::Vacant(_) => panic!(),
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     ///
     /// let entry = map
-    ///     .entry_ref("poneyland")
+    ///     .entry_ref("ponyland")
     ///     .and_replace_entry_with(|_k, _v| None);
     ///
     /// match entry {
-    ///     EntryRef::Vacant(e) => assert_eq!(e.key(), "poneyland"),
+    ///     EntryRef::Vacant(e) => assert_eq!(e.key(), "ponyland"),
     ///     EntryRef::Occupied(_) => panic!(),
     /// }
     ///
-    /// assert!(!map.contains_key("poneyland"));
+    /// assert!(!map.contains_key("ponyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_replace_entry_with<F>(self, f: F) -> Self
@@ -5968,8 +5968,8 @@ impl<'a, 'b, K, Q: ?Sized, V: Default, S, A: Allocator + Clone> EntryRef<'a, 'b,
     /// let mut map: HashMap<String, Option<u32>> = HashMap::new();
     ///
     /// // nonexistent key
-    /// map.entry_ref("poneyland").or_default();
-    /// assert_eq!(map["poneyland"], None);
+    /// map.entry_ref("ponyland").or_default();
+    /// assert_eq!(map["ponyland"], None);
     ///
     /// map.insert("horseland".to_string(), Some(3));
     ///
@@ -5998,11 +5998,11 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::{EntryRef, HashMap};
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// match map.entry_ref("poneyland") {
+    /// match map.entry_ref("ponyland") {
     ///     EntryRef::Vacant(_) => panic!(),
-    ///     EntryRef::Occupied(entry) => assert_eq!(entry.key(), "poneyland"),
+    ///     EntryRef::Occupied(entry) => assert_eq!(entry.key(), "ponyland"),
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
@@ -6026,14 +6026,14 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// // The map is empty
     /// assert!(map.is_empty() && map.capacity() == 0);
     ///
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// if let EntryRef::Occupied(o) = map.entry_ref("poneyland") {
+    /// if let EntryRef::Occupied(o) = map.entry_ref("ponyland") {
     ///     // We delete the entry from the map.
-    ///     assert_eq!(o.remove_entry(), ("poneyland".to_owned(), 12));
+    ///     assert_eq!(o.remove_entry(), ("ponyland".to_owned(), 12));
     /// }
     ///
-    /// assert_eq!(map.contains_key("poneyland"), false);
+    /// assert_eq!(map.contains_key("ponyland"), false);
     /// // Now map hold none elements but capacity is equal to the old one
     /// assert!(map.is_empty());
     /// ```
@@ -6051,9 +6051,9 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::EntryRef;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// match map.entry_ref("poneyland") {
+    /// match map.entry_ref("ponyland") {
     ///     EntryRef::Vacant(_) => panic!(),
     ///     EntryRef::Occupied(entry) => assert_eq!(entry.get(), &12),
     /// }
@@ -6077,10 +6077,10 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::EntryRef;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
-    /// if let EntryRef::Occupied(mut o) = map.entry_ref("poneyland") {
+    /// assert_eq!(map["ponyland"], 12);
+    /// if let EntryRef::Occupied(mut o) = map.entry_ref("ponyland") {
     ///     *o.get_mut() += 10;
     ///     assert_eq!(*o.get(), 22);
     ///
@@ -6088,7 +6088,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     ///     *o.get_mut() += 2;
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 24);
+    /// assert_eq!(map["ponyland"], 24);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_mut(&mut self) -> &mut V {
@@ -6108,16 +6108,16 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::{EntryRef, HashMap};
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
     /// let value: &mut u32;
-    /// match map.entry_ref("poneyland") {
+    /// match map.entry_ref("ponyland") {
     ///     EntryRef::Occupied(entry) => value = entry.into_mut(),
     ///     EntryRef::Vacant(_) => panic!(),
     /// }
     /// *value += 10;
     ///
-    /// assert_eq!(map["poneyland"], 22);
+    /// assert_eq!(map["ponyland"], 22);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_mut(self) -> &'a mut V {
@@ -6133,13 +6133,13 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::EntryRef;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// if let EntryRef::Occupied(mut o) = map.entry_ref("poneyland") {
+    /// if let EntryRef::Occupied(mut o) = map.entry_ref("ponyland") {
     ///     assert_eq!(o.insert(15), 12);
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 15);
+    /// assert_eq!(map["ponyland"], 15);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(&mut self, value: V) -> V {
@@ -6159,13 +6159,13 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// // The map is empty
     /// assert!(map.is_empty() && map.capacity() == 0);
     ///
-    /// map.entry_ref("poneyland").or_insert(12);
+    /// map.entry_ref("ponyland").or_insert(12);
     ///
-    /// if let EntryRef::Occupied(o) = map.entry_ref("poneyland") {
+    /// if let EntryRef::Occupied(o) = map.entry_ref("ponyland") {
     ///     assert_eq!(o.remove(), 12);
     /// }
     ///
-    /// assert_eq!(map.contains_key("poneyland"), false);
+    /// assert_eq!(map.contains_key("ponyland"), false);
     /// // Now map hold none elements but capacity is equal to the old one
     /// assert!(map.is_empty());
     /// ```
@@ -6275,12 +6275,12 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// use hashbrown::hash_map::EntryRef;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// map.insert("poneyland".to_string(), 42);
+    /// map.insert("ponyland".to_string(), 42);
     ///
-    /// let entry = match map.entry_ref("poneyland") {
+    /// let entry = match map.entry_ref("ponyland") {
     ///     EntryRef::Occupied(e) => {
     ///         e.replace_entry_with(|k, v| {
-    ///             assert_eq!(k, "poneyland");
+    ///             assert_eq!(k, "ponyland");
     ///             assert_eq!(v, 42);
     ///             Some(v + 1)
     ///         })
@@ -6290,27 +6290,27 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     ///
     /// match entry {
     ///     EntryRef::Occupied(e) => {
-    ///         assert_eq!(e.key(), "poneyland");
+    ///         assert_eq!(e.key(), "ponyland");
     ///         assert_eq!(e.get(), &43);
     ///     }
     ///     EntryRef::Vacant(_) => panic!(),
     /// }
     ///
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map["ponyland"], 43);
     ///
-    /// let entry = match map.entry_ref("poneyland") {
+    /// let entry = match map.entry_ref("ponyland") {
     ///     EntryRef::Occupied(e) => e.replace_entry_with(|_k, _v| None),
     ///     EntryRef::Vacant(_) => panic!(),
     /// };
     ///
     /// match entry {
     ///     EntryRef::Vacant(e) => {
-    ///         assert_eq!(e.key(), "poneyland");
+    ///         assert_eq!(e.key(), "ponyland");
     ///     }
     ///     EntryRef::Occupied(_) => panic!(),
     /// }
     ///
-    /// assert!(!map.contains_key("poneyland"));
+    /// assert!(!map.contains_key("ponyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn replace_entry_with<F>(self, f: F) -> EntryRef<'a, 'b, K, Q, V, S, A>
@@ -6355,8 +6355,8 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> VacantEntryRef<'a, 'b, K,
     /// use hashbrown::HashMap;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// let key: &str = "poneyland";
-    /// assert_eq!(map.entry_ref(key).key(), "poneyland");
+    /// let key: &str = "ponyland";
+    /// assert_eq!(map.entry_ref(key).key(), "ponyland");
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn key(&self) -> &Q
@@ -6374,11 +6374,11 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> VacantEntryRef<'a, 'b, K,
     /// use hashbrown::hash_map::{EntryRef, HashMap};
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// let key: &str = "poneyland";
+    /// let key: &str = "ponyland";
     ///
     /// match map.entry_ref(key) {
     ///     EntryRef::Occupied(_) => panic!(),
-    ///     EntryRef::Vacant(v) => assert_eq!(v.into_key(), "poneyland".to_owned()),
+    ///     EntryRef::Vacant(v) => assert_eq!(v.into_key(), "ponyland".to_owned()),
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
@@ -6399,12 +6399,12 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> VacantEntryRef<'a, 'b, K,
     /// use hashbrown::hash_map::EntryRef;
     ///
     /// let mut map: HashMap<String, u32> = HashMap::new();
-    /// let key: &str = "poneyland";
+    /// let key: &str = "ponyland";
     ///
     /// if let EntryRef::Vacant(o) = map.entry_ref(key) {
     ///     o.insert(37);
     /// }
-    /// assert_eq!(map["poneyland"], 37);
+    /// assert_eq!(map["ponyland"], 37);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(self, value: V) -> &'a mut V
@@ -6977,11 +6977,11 @@ mod test_map {
     #[test]
     fn test_empty_entry_ref() {
         let mut m: HashMap<std::string::String, bool> = HashMap::new();
-        match m.entry_ref("poneyland") {
+        match m.entry_ref("ponyland") {
             EntryRef::Occupied(_) => panic!(),
             EntryRef::Vacant(_) => {}
         }
-        assert!(*m.entry_ref("poneyland").or_insert(true));
+        assert!(*m.entry_ref("ponyland").or_insert(true));
         assert_eq!(m.len(), 1);
     }
 
