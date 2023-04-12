@@ -824,7 +824,7 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     /// assert_eq!(map.len(), 3);
     /// let mut vec: Vec<(&str, i32)> = Vec::new();
     ///
-    /// for (key, val) in map.iter_at(0x517cc1b727220a95_usize) {
+    /// for (key, val) in map.iter_at(0x517cc1b727220a95u64 as usize) {
     ///     println!("key: {} val: {}", key, val);
     ///     vec.push((*key, *val));
     /// }
@@ -4889,7 +4889,7 @@ impl<K, V> FusedIterator for Iter<'_, K, V> {}
 ///
 /// let map: HashMap<_, _> = [(1, "a"), (2, "b"), (3, "c")].into();
 ///
-/// let mut iter = map.iter_at(0x517cc1b727220a95_usize);
+/// let mut iter = map.iter_at(0x517cc1b727220a95u64 as usize);
 /// let mut vec = vec![iter.next(), iter.next(), iter.next()];
 ///
 /// // The `IterHinted` iterator produces items in arbitrary order, so the
@@ -8719,7 +8719,9 @@ mod test_map {
             #[cfg(not(miri))]
             const K: usize = 16;
             for k in 0..K {
-                let hint = 0x517cc1b727220a95_usize.wrapping_mul(i).wrapping_add(k);
+                let hint = (0x517cc1b727220a95u64 as usize)
+                    .wrapping_mul(i)
+                    .wrapping_add(k);
                 for (k, _) in h.iter_at(hint) {
                     s[*k] += 1;
                 }
