@@ -1,4 +1,6 @@
-use crate::raw::{Allocator, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawTable};
+use crate::raw::{
+    Allocator, Bucket, Global, RawDrain, RawIntoIter, RawIter, RawIterRange, RawTable,
+};
 use crate::{Equivalent, TryReserveError};
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
@@ -793,6 +795,55 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
         unsafe {
             Iter {
                 inner: self.table.iter(),
+                marker: PhantomData,
+            }
+        }
+    }
+
+    /// An iterator visiting all key-value pairs in arbitrary order starting at some arbitrary
+    /// location computed based on `hint`. Hint could be any `usize` integer.
+    ///
+    /// If all elements of the table are imagined on a ring then `hint` changes the
+    /// starting point on the ring but does not change relative positions of elements
+    /// on the ring itself. The relative positions on the ring are the same as for [`iter`]
+    /// if we allow the order to wrap around.
+    ///
+    /// The iterator element type is `(&'a K, &'a V)`.
+    ///
+    /// [`iter`]: struct.HashMap.html#method.iter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    /// assert_eq!(map.len(), 3);
+    /// let mut vec: Vec<(&str, i32)> = Vec::new();
+    ///
+    /// for (key, val) in map.iter_at(0x517cc1b727220a95_usize) {
+    ///     println!("key: {} val: {}", key, val);
+    ///     vec.push((*key, *val));
+    /// }
+    ///
+    /// // The `Iter` iterator produces items in arbitrary order, so the
+    /// // items must be sorted to test them against a sorted array.
+    /// vec.sort_unstable();
+    /// assert_eq!(vec, [("a", 1), ("b", 2), ("c", 3)]);
+    ///
+    /// assert_eq!(map.len(), 3);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter_at(&self, hint: usize) -> IterHinted<'_, K, V> {
+        // Here we tie the lifetime of self to the iter.
+        unsafe {
+            IterHinted {
+                inner_head: self.table.iter_at(hint),
+                inner_tail: self.table.iter_at(0),
+                items: self.len(),
                 marker: PhantomData,
             }
         }
@@ -4821,6 +4872,75 @@ impl<K, V> ExactSizeIterator for Iter<'_, K, V> {
 
 impl<K, V> FusedIterator for Iter<'_, K, V> {}
 
+/// An iterator over the entries of a `HashMap` in arbitrary order starting at some arbitrary
+/// location computed based on `hint`. Hint could be any `usize` integer..
+/// The iterator element type is `(&'a K, &'a V)`.
+///
+/// This `struct` is created by the [`iter_at`] method on [`HashMap`]. See its
+/// documentation for more.
+///
+/// [`iter_at`]: struct.HashMap.html#method.iter_at
+/// [`HashMap`]: struct.HashMap.html
+///
+/// # Examples
+///
+/// ```
+/// use hashbrown::HashMap;
+///
+/// let map: HashMap<_, _> = [(1, "a"), (2, "b"), (3, "c")].into();
+///
+/// let mut iter = map.iter_at(0x517cc1b727220a95_usize);
+/// let mut vec = vec![iter.next(), iter.next(), iter.next()];
+///
+/// // The `IterHinted` iterator produces items in arbitrary order, so the
+/// // items must be sorted to test them against a sorted array.
+/// vec.sort_unstable();
+/// assert_eq!(vec, [Some((&1, &"a")), Some((&2, &"b")), Some((&3, &"c"))]);
+///
+/// // It is fused iterator
+/// assert_eq!(iter.next(), None);
+/// assert_eq!(iter.next(), None);
+/// ```
+pub struct IterHinted<'a, K, V> {
+    inner_head: RawIterRange<(K, V)>,
+    inner_tail: RawIterRange<(K, V)>,
+    items: usize,
+    marker: PhantomData<(&'a K, &'a V)>,
+}
+
+impl<'a, K, V> Iterator for IterHinted<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn next(&mut self) -> Option<(&'a K, &'a V)> {
+        if self.items == 0 {
+            return None;
+        }
+        loop {
+            // Avoid `Option::map` because it bloats LLVM IR.
+            match self.inner_head.next() {
+                Some(x) => {
+                    self.items -= 1;
+                    unsafe {
+                        let r = x.as_ref();
+                        return Some((&r.0, &r.1));
+                    }
+                }
+                None => {
+                    mem::swap(&mut self.inner_head, &mut self.inner_tail);
+                }
+            }
+        }
+    }
+
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.items, Some(self.items))
+    }
+}
+
+impl<K, V> FusedIterator for IterHinted<'_, K, V> {}
+
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
@@ -8574,5 +8694,39 @@ mod test_map {
             },
         );
         let _map2 = map1.clone();
+    }
+
+    #[test]
+    fn test_iter_at() {
+        #[cfg(miri)]
+        const N: usize = 32;
+        #[cfg(not(miri))]
+        const N: usize = 512;
+        for i in 0..N {
+            let mut h = HashMap::new();
+            for j in 0..i {
+                h.insert(j, j);
+            }
+            let mut s = vec![0usize; i];
+            for (k, _) in h.iter_at(0) {
+                s[*k] += 1;
+            }
+            for (idx, v) in s.iter().enumerate() {
+                assert_eq!(*v, 1, "i={} idx={} v={}", i, idx, *v);
+            }
+            #[cfg(miri)]
+            const K: usize = 1;
+            #[cfg(not(miri))]
+            const K: usize = 16;
+            for k in 0..K {
+                let hint = 0x517cc1b727220a95_usize.wrapping_mul(i).wrapping_add(k);
+                for (k, _) in h.iter_at(hint) {
+                    s[*k] += 1;
+                }
+                for (idx, v) in s.iter().enumerate() {
+                    assert_eq!(*v, 1 + 1 + k, "i={} hint={} idx={} v={}", i, hint, idx, *v);
+                }
+            }
+        }
     }
 }

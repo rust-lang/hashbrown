@@ -1409,6 +1409,26 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         }
     }
 
+    /// Returns an iterator over subset of elements in the table starting
+    /// at arbitrary location computed based on `hint`. If `hint` is zero it
+    /// guarantees to return all elements of the table in arbitrary order.
+    /// The subset of elements returned with non-zero `hint` is some tail of
+    /// elements returned with zero `hint`.
+    ///
+    /// It is up to the caller to ensure that the `RawTable` outlives the `RawIterRange`.
+    /// Because we cannot make the `next` method unsafe on the `RawIterRange`
+    /// struct, we have to make the `iter_at` method unsafe.
+    #[inline]
+    pub unsafe fn iter_at(&self, hint: usize) -> RawIterRange<T> {
+        let index = hint & self.table.bucket_mask & !(Group::WIDTH - 1);
+        let data = Bucket::from_base_index(self.data_end(), index);
+        RawIterRange::new(
+            self.table.ctrl.as_ptr().add(index),
+            data,
+            self.table.buckets() - index,
+        )
+    }
+
     /// Returns an iterator over occupied buckets that could match a given hash.
     ///
     /// `RawTable` only stores 7 bits of the hash value, so this iterator may
@@ -2709,7 +2729,7 @@ impl<T, A: Allocator + Clone> IntoIterator for RawTable<T, A> {
 
 /// Iterator over a sub-range of a table. Unlike `RawIter` this iterator does
 /// not track an item count.
-pub(crate) struct RawIterRange<T> {
+pub struct RawIterRange<T> {
     // Mask of full buckets in the current group. Bits are cleared from this
     // mask as each element is processed.
     current_group: BitMask,
