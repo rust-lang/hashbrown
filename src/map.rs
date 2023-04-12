@@ -3577,7 +3577,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryMut<'a, K, V, S, A> {
         F: FnOnce(&K, V) -> Option<V>,
     {
         match self {
-            RawEntryMut::Occupied(entry) => entry.replace_entry_with(f),
+            RawEntryMut::Occupied(entry) => entry.replace_entry_with(|k, v| (f(k, v), ())).0,
             RawEntryMut::Vacant(_) => self,
         }
     }
@@ -3936,20 +3936,20 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
     ///
     /// let mut map: HashMap<&str, u32> = [("a", 100), ("b", 200)].into();
     ///
-    /// let raw_entry = match map.raw_entry_mut().from_key(&"a") {
+    /// let (raw_entry, ()) = match map.raw_entry_mut().from_key(&"a") {
     ///     RawEntryMut::Vacant(_) => panic!(),
     ///     RawEntryMut::Occupied(o) => o.replace_entry_with(|k, v| {
     ///         assert_eq!(k, &"a");
     ///         assert_eq!(v, 100);
-    ///         Some(v + 900)
+    ///         (Some(v + 900), ())
     ///     }),
     /// };
-    /// let raw_entry = match raw_entry {
+    /// let (raw_entry, ()) = match raw_entry {
     ///     RawEntryMut::Vacant(_) => panic!(),
     ///     RawEntryMut::Occupied(o) => o.replace_entry_with(|k, v| {
     ///         assert_eq!(k, &"a");
     ///         assert_eq!(v, 1000);
-    ///         None
+    ///         (None, ())
     ///     }),
     /// };
     /// match raw_entry {
@@ -3959,25 +3959,27 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// assert_eq!(map.get(&"a"), None);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn replace_entry_with<F>(self, f: F) -> RawEntryMut<'a, K, V, S, A>
+    pub fn replace_entry_with<F, R>(self, f: F) -> (RawEntryMut<'a, K, V, S, A>, R)
     where
-        F: FnOnce(&K, V) -> Option<V>,
+        F: FnOnce(&K, V) -> (Option<V>, R),
     {
         unsafe {
-            let still_occupied = self
-                .table
-                .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    f(&key, value).map(|new_value| (key, new_value))
-                });
+            let (still_occupied, r) =
+                self.table
+                    .replace_bucket_with(self.elem.clone(), |(key, value)| {
+                        let (new_value, r) = f(&key, value);
+                        (new_value.map(|new_value| (key, new_value)), r)
+                    });
 
-            if still_occupied {
+            let v = if still_occupied {
                 RawEntryMut::Occupied(self)
             } else {
                 RawEntryMut::Vacant(RawVacantEntryMut {
                     table: self.table,
                     hash_builder: self.hash_builder,
                 })
-            }
+            };
+            (v, r)
         }
     }
 }
@@ -5209,7 +5211,7 @@ impl<'a, K, V, S, A: Allocator + Clone> Entry<'a, K, V, S, A> {
         F: FnOnce(&K, V) -> Option<V>,
     {
         match self {
-            Entry::Occupied(entry) => entry.replace_entry_with(f),
+            Entry::Occupied(entry) => entry.replace_entry_with(|k, v| (f(k, v), ())).0,
             Entry::Vacant(_) => self,
         }
     }
@@ -5536,12 +5538,12 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     /// map.insert("poneyland", 42);
     ///
-    /// let entry = match map.entry("poneyland") {
+    /// let (entry, ()) = match map.entry("poneyland") {
     ///     Entry::Occupied(e) => {
     ///         e.replace_entry_with(|k, v| {
     ///             assert_eq!(k, &"poneyland");
     ///             assert_eq!(v, 42);
-    ///             Some(v + 1)
+    ///             (Some(v + 1), ())
     ///         })
     ///     }
     ///     Entry::Vacant(_) => panic!(),
@@ -5557,8 +5559,8 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     ///
     /// assert_eq!(map["poneyland"], 43);
     ///
-    /// let entry = match map.entry("poneyland") {
-    ///     Entry::Occupied(e) => e.replace_entry_with(|_k, _v| None),
+    /// let (entry, ()) = match map.entry("poneyland") {
+    ///     Entry::Occupied(e) => e.replace_entry_with(|_k, _v| (None, ())),
     ///     Entry::Vacant(_) => panic!(),
     /// };
     ///
@@ -5572,25 +5574,20 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// assert!(!map.contains_key("poneyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn replace_entry_with<F>(self, f: F) -> Entry<'a, K, V, S, A>
+    pub fn replace_entry_with<F, R>(self, f: F) -> (Entry<'a, K, V, S, A>, R)
     where
-        F: FnOnce(&K, V) -> Option<V>,
+        F: FnOnce(&K, V) -> (Option<V>, R),
     {
         unsafe {
-            let mut spare_key = None;
+            let (_, (r, spare_key)) =
+                self.table
+                    .table
+                    .replace_bucket_with(self.elem.clone(), |(key, value)| match f(&key, value) {
+                        (Some(new_value), r) => (Some((key, new_value)), (r, None)),
+                        (None, r) => (None, (r, Some(key))),
+                    });
 
-            self.table
-                .table
-                .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    if let Some(new_value) = f(&key, value) {
-                        Some((key, new_value))
-                    } else {
-                        spare_key = Some(key);
-                        None
-                    }
-                });
-
-            if let Some(key) = spare_key {
+            let v = if let Some(key) = spare_key {
                 Entry::Vacant(VacantEntry {
                     hash: self.hash,
                     key,
@@ -5598,7 +5595,8 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
                 })
             } else {
                 Entry::Occupied(self)
-            }
+            };
+            (v, r)
         }
     }
 }
@@ -5932,7 +5930,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
         K: Borrow<Q>,
     {
         match self {
-            EntryRef::Occupied(entry) => entry.replace_entry_with(f),
+            EntryRef::Occupied(entry) => entry.replace_entry_with(|k, v| (f(k, v), ())).0,
             EntryRef::Vacant(_) => self,
         }
     }
@@ -6264,8 +6262,8 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     ///         e.replace_entry_with(|k, v| {
     ///             assert_eq!(k, "poneyland");
     ///             assert_eq!(v, 42);
-    ///             Some(v + 1)
-    ///         })
+    ///             (Some(v + 1), ())
+    ///         }).0
     ///     }
     ///     EntryRef::Vacant(_) => panic!(),
     /// };
@@ -6281,7 +6279,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// assert_eq!(map["poneyland"], 43);
     ///
     /// let entry = match map.entry_ref("poneyland") {
-    ///     EntryRef::Occupied(e) => e.replace_entry_with(|_k, _v| None),
+    ///     EntryRef::Occupied(e) => e.replace_entry_with(|_k, _v| (None, ())).0,
     ///     EntryRef::Vacant(_) => panic!(),
     /// };
     ///
@@ -6295,26 +6293,23 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// assert!(!map.contains_key("poneyland"));
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn replace_entry_with<F>(self, f: F) -> EntryRef<'a, 'b, K, Q, V, S, A>
+    pub fn replace_entry_with<F, R>(self, f: F) -> (EntryRef<'a, 'b, K, Q, V, S, A>, R)
     where
-        F: FnOnce(&Q, V) -> Option<V>,
+        F: FnOnce(&Q, V) -> (Option<V>, R),
         K: Borrow<Q>,
     {
         unsafe {
-            let mut spare_key = None;
+            let (_, (r, spare_key)) =
+                self.table
+                    .table
+                    .replace_bucket_with(self.elem.clone(), |(key, value)| {
+                        match f(key.borrow(), value) {
+                            (Some(new_value), r) => (Some((key, new_value)), (r, None)),
+                            (None, r) => (None, (r, Some(KeyOrRef::Owned(key)))),
+                        }
+                    });
 
-            self.table
-                .table
-                .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    if let Some(new_value) = f(key.borrow(), value) {
-                        Some((key, new_value))
-                    } else {
-                        spare_key = Some(KeyOrRef::Owned(key));
-                        None
-                    }
-                });
-
-            if let Some(key) = spare_key {
+            let v = if let Some(key) = spare_key {
                 EntryRef::Vacant(VacantEntryRef {
                     hash: self.hash,
                     key,
@@ -6322,7 +6317,8 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
                 })
             } else {
                 EntryRef::Occupied(self)
-            }
+            };
+            (v, r)
         }
     }
 }
@@ -7787,10 +7783,10 @@ mod test_map {
         let value = "an initial value";
         let new_value = "a new value";
 
-        let entry = a.entry(key).insert(value).replace_entry_with(|k, v| {
+        let (entry, ()) = a.entry(key).insert(value).replace_entry_with(|k, v| {
             assert_eq!(k, &key);
             assert_eq!(v, value);
-            Some(new_value)
+            (Some(new_value), ())
         });
 
         match entry {
@@ -7804,11 +7800,11 @@ mod test_map {
         assert_eq!(a[key], new_value);
         assert_eq!(a.len(), 1);
 
-        let entry = match a.entry(key) {
+        let (entry, ()) = match a.entry(key) {
             Occupied(e) => e.replace_entry_with(|k, v| {
                 assert_eq!(k, &key);
                 assert_eq!(v, new_value);
-                None
+                (None, ())
             }),
             Vacant(_) => panic!(),
         };
@@ -7830,10 +7826,10 @@ mod test_map {
         let value = "an initial value";
         let new_value = "a new value";
 
-        let entry = a.entry_ref(key).insert(value).replace_entry_with(|k, v| {
+        let (entry, ()) = a.entry_ref(key).insert(value).replace_entry_with(|k, v| {
             assert_eq!(k, key);
             assert_eq!(v, value);
-            Some(new_value)
+            (Some(new_value), ())
         });
 
         match entry {
@@ -7847,11 +7843,11 @@ mod test_map {
         assert_eq!(a[key], new_value);
         assert_eq!(a.len(), 1);
 
-        let entry = match a.entry_ref(key) {
+        let (entry, ()) = match a.entry_ref(key) {
             EntryRef::Occupied(e) => e.replace_entry_with(|k, v| {
                 assert_eq!(k, key);
                 assert_eq!(v, new_value);
-                None
+                (None, ())
             }),
             EntryRef::Vacant(_) => panic!(),
         };
@@ -7978,8 +7974,9 @@ mod test_map {
             .replace_entry_with(|k, v| {
                 assert_eq!(k, &key);
                 assert_eq!(v, value);
-                Some(new_value)
-            });
+                (Some(new_value), ())
+            })
+            .0;
 
         match entry {
             RawEntryMut::Occupied(e) => {
@@ -7992,11 +7989,11 @@ mod test_map {
         assert_eq!(a[key], new_value);
         assert_eq!(a.len(), 1);
 
-        let entry = match a.raw_entry_mut().from_key(&key) {
+        let (entry, ()) = match a.raw_entry_mut().from_key(&key) {
             RawEntryMut::Occupied(e) => e.replace_entry_with(|k, v| {
                 assert_eq!(k, &key);
                 assert_eq!(v, new_value);
-                None
+                (None, ())
             }),
             RawEntryMut::Vacant(_) => panic!(),
         };

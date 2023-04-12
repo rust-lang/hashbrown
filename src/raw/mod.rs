@@ -1232,23 +1232,24 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     ///
     /// This does not check if the given bucket is actually occupied.
     #[cfg_attr(feature = "inline-more", inline)]
-    pub unsafe fn replace_bucket_with<F>(&mut self, bucket: Bucket<T>, f: F) -> bool
+    pub unsafe fn replace_bucket_with<F, R>(&mut self, bucket: Bucket<T>, f: F) -> (bool, R)
     where
-        F: FnOnce(T) -> Option<T>,
+        F: FnOnce(T) -> (Option<T>, R),
     {
         let index = self.bucket_index(&bucket);
         let old_ctrl = *self.table.ctrl(index);
         debug_assert!(self.is_bucket_full(index));
         let old_growth_left = self.table.growth_left;
         let item = self.remove(bucket);
-        if let Some(new_item) = f(item) {
-            self.table.growth_left = old_growth_left;
-            self.table.set_ctrl(index, old_ctrl);
-            self.table.items += 1;
-            self.bucket(index).write(new_item);
-            true
-        } else {
-            false
+        match f(item) {
+            (Some(new_item), r) => {
+                self.table.growth_left = old_growth_left;
+                self.table.set_ctrl(index, old_ctrl);
+                self.table.items += 1;
+                self.bucket(index).write(new_item);
+                (true, r)
+            }
+            (None, r) => (false, r),
         }
     }
 
