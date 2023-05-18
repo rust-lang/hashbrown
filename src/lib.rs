@@ -25,6 +25,14 @@
         strict_provenance
     )
 )]
+#![cfg_attr(
+    all(
+        feature = "nightly",
+        target_feature = "simd128",
+        any(target_arch = "wasm32", target_arch = "wasm64"),
+    ),
+    feature(wasm_simd)
+)]
 #![allow(
     clippy::doc_markdown,
     clippy::module_name_repetitions,
