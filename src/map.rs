@@ -619,6 +619,15 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
         self.table.capacity()
     }
 
+    /// Returns the maximum number of elements the map could potentially hold
+    /// without reallocating.
+    ///
+    /// This number is an upper bound.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn max_capacity(&self) -> usize {
+        self.table.max_capacity()
+    }
+
     /// An iterator visiting all keys in arbitrary order.
     /// The iterator element type is `&'a K`.
     ///
