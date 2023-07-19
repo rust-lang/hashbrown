@@ -1259,15 +1259,16 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         mut eq: impl FnMut(&T) -> bool,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
-        self.reserve(1, hasher);
-
         match self
             .table
             .find_or_find_insert_slot_inner(hash, &mut |index| unsafe {
                 eq(self.bucket(index).as_ref())
             }) {
             Ok(index) => Ok(unsafe { self.bucket(index) }),
-            Err(slot) => Err(slot),
+            Err(slot) => {
+                self.reserve(1, hasher);
+                Err(slot)
+            }
         }
     }
 
