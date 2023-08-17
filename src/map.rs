@@ -3205,6 +3205,33 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilderMut<'a, K, V, S, A> {
     }
 }
 
+impl<'a, K: Hash, V, S: BuildHasher, A: Allocator + Clone> RawEntryBuilderMut<'a, K, V, S, A> {
+    /// Insert a key-value pair into the map without checking if the key already exists in the map.
+    /// The hash provided is used for the key instead of hashing the key.
+    ///
+    /// For correct operation of the hash table, the key must not already be in the map and the hash
+    /// must match they hash the maps's hash build would produce.
+    #[cfg_attr(feature = "inline-more", inline)]
+    #[allow(clippy::wrong_self_convention)]
+    pub fn insert_unique_hashed_nocheck(
+        self,
+        hash: u64,
+        key: K,
+        value: V,
+    ) -> RawOccupiedEntryMut<'a, K, V, S, A> {
+        let elem = self.map.table.insert(
+            hash,
+            (key, value),
+            make_hasher::<_, V, S>(&self.map.hash_builder),
+        );
+        RawOccupiedEntryMut {
+            elem,
+            table: &mut self.map.table,
+            hash_builder: &self.map.hash_builder,
+        }
+    }
+}
+
 impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilderMut<'a, K, V, S, A> {
     /// Creates a `RawEntryMut` from the given hash and matching function.
     ///
@@ -8152,6 +8179,28 @@ mod test_map {
                 panic!("isize::MAX / 5 should trigger an OOM!");
             }
         }
+    }
+
+    #[test]
+    fn test_raw_entry_insert_unique_hashed_nocheck() {
+        let xs = [(1_i32, 10_i32), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
+
+        let compute_hash = |map: &HashMap<i32, i32>, k: i32| -> u64 {
+            super::make_hash::<i32, _>(map.hasher(), &k)
+        };
+
+        let mut map: HashMap<_, _> = HashMap::new();
+
+        for (k, v) in xs.iter().copied() {
+            let hash = compute_hash(&map, k);
+            map.raw_entry_mut().insert_unique_hashed_nocheck(hash, k, v);
+        }
+
+        for (k, v) in xs.iter().copied() {
+            assert_eq!(map.remove(&k), Some(v));
+        }
+
+        assert_eq!(map.len(), 0);
     }
 
     #[test]
