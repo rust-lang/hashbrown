@@ -1,6 +1,7 @@
 use crate::alloc::alloc::{handle_alloc_error, Layout};
 use crate::scopeguard::guard;
 use crate::TryReserveError;
+use core::convert::Infallible;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem;
@@ -64,6 +65,27 @@ fn invalid_mut<T>(addr: usize) -> *mut T {
 #[inline]
 unsafe fn offset_from<T>(to: *const T, from: *const T) -> usize {
     to.offset_from(from) as usize
+}
+
+/// Helper for coercing an infallible result into `Ok`.
+#[inline(always)]
+fn into_ok<T>(result: Result<T, Infallible>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => match error {},
+    }
+}
+
+#[inline(always)]
+fn infallible_eq<T>(
+    mut f: impl FnMut(&T) -> bool,
+) -> impl FnMut(&mut (), &T) -> Result<bool, Infallible> {
+    move |_, value| Ok::<_, Infallible>(f(value))
+}
+
+#[inline(always)]
+fn infallible_hasher<T>(f: impl Fn(&T) -> u64) -> impl Fn(&mut (), &T) -> Result<u64, Infallible> {
+    move |_, value| Ok::<_, Infallible>(f(value))
 }
 
 /// Whether memory allocation errors should return an error or abort.
@@ -976,14 +998,29 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     #[cfg(feature = "raw")]
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn erase_entry(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> bool {
+        into_ok(self.erase_entry_with(&mut (), hash, infallible_eq(eq)))
+    }
+
+    /// Finds and erases an element from the table, dropping it in place.
+    /// Returns true if an element was found.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[cfg(feature = "raw")]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn erase_entry_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        hash: u64,
+        eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+    ) -> Result<bool, E> {
         // Avoid `Option::map` because it bloats LLVM IR.
-        if let Some(bucket) = self.find(hash, eq) {
+        if let Some(bucket) = self.find_with(cx, hash, eq)? {
             unsafe {
                 self.erase(bucket);
             }
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -1005,11 +1042,24 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// Finds and removes an element from the table, returning it.
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<T> {
+        into_ok(self.remove_entry_with(&mut (), hash, infallible_eq(eq)))
+    }
+
+    /// Finds and removes an element from the table, returning it.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn remove_entry_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        hash: u64,
+        eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+    ) -> Result<Option<T>, E> {
         // Avoid `Option::map` because it bloats LLVM IR.
-        match self.find(hash, eq) {
+        Ok(match self.find_with(cx, hash, eq)? {
             Some(bucket) => Some(unsafe { self.remove(bucket).0 }),
             None => None,
-        }
+        })
     }
 
     /// Marks all table buckets as empty without dropping their contents.
@@ -1043,12 +1093,25 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// Shrinks the table to fit `max(self.len(), min_size)` elements.
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn shrink_to(&mut self, min_size: usize, hasher: impl Fn(&T) -> u64) {
+        into_ok(self.shrink_to_with(&mut (), min_size, infallible_hasher(hasher)));
+    }
+
+    /// Shrinks the table to fit `max(self.len(), min_size)` elements.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn shrink_to_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        min_size: usize,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
+    ) -> Result<(), E> {
         // Calculate the minimal number of elements that we need to reserve
         // space for.
         let min_size = usize::max(self.table.items, min_size);
         if min_size == 0 {
             *self = Self::new_in(self.table.alloc.clone());
-            return;
+            return Ok(());
         }
 
         // Calculate the number of buckets that we need for this number of
@@ -1057,7 +1120,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         // done.
         let min_buckets = match capacity_to_buckets(min_size) {
             Some(buckets) => buckets,
-            None => return,
+            None => return Ok(()),
         };
 
         // If we have more buckets than we need, shrink the table.
@@ -1068,28 +1131,46 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
             } else {
                 // Avoid `Result::unwrap_or_else` because it bloats LLVM IR.
                 if self
-                    .resize(min_size, hasher, Fallibility::Infallible)
+                    .resize(cx, min_size, hasher, Fallibility::Infallible)?
                     .is_err()
                 {
                     unsafe { hint::unreachable_unchecked() }
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Ensures that at least `additional` items can be inserted into the table
     /// without reallocation.
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn reserve(&mut self, additional: usize, hasher: impl Fn(&T) -> u64) {
+        into_ok(self.reserve_with(&mut (), additional, infallible_hasher(hasher)))
+    }
+
+    /// Ensures that at least `additional` items can be inserted into the table
+    /// without reallocation.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn reserve_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        additional: usize,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
+    ) -> Result<(), E> {
         if unlikely(additional > self.table.growth_left) {
             // Avoid `Result::unwrap_or_else` because it bloats LLVM IR.
             if self
-                .reserve_rehash(additional, hasher, Fallibility::Infallible)
+                .reserve_rehash(cx, additional, hasher, Fallibility::Infallible)?
                 .is_err()
             {
                 unsafe { hint::unreachable_unchecked() }
             }
         }
+
+        Ok(())
     }
 
     /// Tries to ensure that at least `additional` items can be inserted into
@@ -1100,26 +1181,42 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         additional: usize,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<(), TryReserveError> {
+        into_ok(self.try_reserve_with(&mut (), additional, infallible_hasher(hasher)))
+    }
+
+    /// Tries to ensure that at least `additional` items can be inserted into
+    /// the table without reallocation.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn try_reserve_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        additional: usize,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
+    ) -> Result<Result<(), TryReserveError>, E> {
         if additional > self.table.growth_left {
-            self.reserve_rehash(additional, hasher, Fallibility::Fallible)
+            self.reserve_rehash(cx, additional, hasher, Fallibility::Fallible)
         } else {
-            Ok(())
+            Ok(Ok(()))
         }
     }
 
     /// Out-of-line slow path for `reserve` and `try_reserve`.
     #[cold]
     #[inline(never)]
-    fn reserve_rehash(
+    fn reserve_rehash<C: ?Sized, E>(
         &mut self,
+        cx: &mut C,
         additional: usize,
-        hasher: impl Fn(&T) -> u64,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
         fallibility: Fallibility,
-    ) -> Result<(), TryReserveError> {
+    ) -> Result<Result<(), TryReserveError>, E> {
         unsafe {
             self.table.reserve_rehash_inner(
+                cx,
                 additional,
-                &|table, index| hasher(table.bucket::<T>(index).as_ref()),
+                &|table, cx, index| hasher(cx, table.bucket::<T>(index).as_ref()),
                 fallibility,
                 Self::TABLE_LAYOUT,
                 if Self::DATA_NEEDS_DROP {
@@ -1133,16 +1230,18 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Allocates a new table of a different size and moves the contents of the
     /// current table into it.
-    fn resize(
+    fn resize<C: ?Sized, E>(
         &mut self,
+        cx: &mut C,
         capacity: usize,
-        hasher: impl Fn(&T) -> u64,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
         fallibility: Fallibility,
-    ) -> Result<(), TryReserveError> {
+    ) -> Result<Result<(), TryReserveError>, E> {
         unsafe {
             self.table.resize_inner(
+                cx,
                 capacity,
-                &|table, index| hasher(table.bucket::<T>(index).as_ref()),
+                &|table, cx, index| hasher(cx, table.bucket::<T>(index).as_ref()),
                 fallibility,
                 Self::TABLE_LAYOUT,
             )
@@ -1256,18 +1355,42 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub fn find_or_find_insert_slot(
         &mut self,
         hash: u64,
-        mut eq: impl FnMut(&T) -> bool,
+        eq: impl FnMut(&T) -> bool,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
-        self.reserve(1, hasher);
+        into_ok(self.find_or_find_insert_slot_with(
+            &mut (),
+            hash,
+            infallible_eq(eq),
+            infallible_hasher(hasher),
+        ))
+    }
+
+    /// Searches for an element in the table. If the element is not found,
+    /// returns `Err` with the position of a slot where an element with the
+    /// same hash could be inserted.
+    ///
+    /// This function may resize the table if additional space is required for
+    /// inserting an element.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[inline]
+    pub fn find_or_find_insert_slot_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        hash: u64,
+        mut eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+        hasher: impl Fn(&mut C, &T) -> Result<u64, E>,
+    ) -> Result<Result<Bucket<T>, InsertSlot>, E> {
+        self.reserve_with(cx, 1, hasher)?;
 
         match self
             .table
-            .find_or_find_insert_slot_inner(hash, &mut |index| unsafe {
-                eq(self.bucket(index).as_ref())
-            }) {
-            Ok(index) => Ok(unsafe { self.bucket(index) }),
-            Err(slot) => Err(slot),
+            .find_or_find_insert_slot_inner(cx, hash, &mut |cx, index| unsafe {
+                eq(cx, self.bucket(index).as_ref())
+            })? {
+            Ok(index) => Ok(Ok(unsafe { self.bucket(index) })),
+            Err(slot) => Ok(Err(slot)),
         }
     }
 
@@ -1291,36 +1414,75 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Searches for an element in the table.
     #[inline]
-    pub fn find(&self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
-        let result = self.table.find_inner(hash, &mut |index| unsafe {
-            eq(self.bucket(index).as_ref())
-        });
+    pub fn find(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
+        into_ok(self.find_with(&mut (), hash, infallible_eq(eq)))
+    }
+
+    /// Searches for an element in the table.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[inline]
+    pub fn find_with<C: ?Sized, E>(
+        &self,
+        cx: &mut C,
+        hash: u64,
+        mut eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+    ) -> Result<Option<Bucket<T>>, E> {
+        let result = self.table.find_inner(cx, hash, &mut |cx, index| unsafe {
+            eq(cx, self.bucket(index).as_ref())
+        })?;
 
         // Avoid `Option::map` because it bloats LLVM IR.
-        match result {
+        Ok(match result {
             Some(index) => Some(unsafe { self.bucket(index) }),
             None => None,
-        }
+        })
     }
 
     /// Gets a reference to an element in the table.
     #[inline]
     pub fn get(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
+        into_ok(self.get_with(&mut (), hash, infallible_eq(eq)))
+    }
+
+    /// Gets a reference to an element in the table.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[inline]
+    pub fn get_with<C: ?Sized, E>(
+        &self,
+        cx: &mut C,
+        hash: u64,
+        eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+    ) -> Result<Option<&T>, E> {
         // Avoid `Option::map` because it bloats LLVM IR.
-        match self.find(hash, eq) {
+        Ok(match self.find_with(cx, hash, eq)? {
             Some(bucket) => Some(unsafe { bucket.as_ref() }),
             None => None,
-        }
+        })
     }
 
     /// Gets a mutable reference to an element in the table.
     #[inline]
     pub fn get_mut(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&mut T> {
+        into_ok(self.get_mut_with(&mut (), hash, infallible_eq(eq)))
+    }
+
+    /// Gets a mutable reference to an element in the table.
+    ///
+    /// This variant supports a fallible hasher with a passed around context.
+    #[inline]
+    pub fn get_mut_with<C: ?Sized, E>(
+        &mut self,
+        cx: &mut C,
+        hash: u64,
+        eq: impl FnMut(&mut C, &T) -> Result<bool, E>,
+    ) -> Result<Option<&mut T>, E> {
         // Avoid `Option::map` because it bloats LLVM IR.
-        match self.find(hash, eq) {
+        Ok(match self.find_with(cx, hash, eq)? {
             Some(bucket) => Some(unsafe { bucket.as_mut() }),
             None => None,
-        }
+        })
     }
 
     /// Attempts to get mutable references to `N` entries in the table at once.
@@ -1672,17 +1834,18 @@ impl<A: Allocator + Clone> RawTableInner<A> {
         }
     }
 
-    /// Searches for an element in the table, or a potential slot where that element could be
-    /// inserted.
+    /// Searches for an element in the table, or a potential slot where that
+    /// element could be inserted.
     ///
-    /// This uses dynamic dispatch to reduce the amount of code generated, but that is
-    /// eliminated by LLVM optimizations.
+    /// This uses dynamic dispatch to reduce the amount of code generated for
+    /// the `eq` argument, but that is eliminated by LLVM optimizations.
     #[inline]
-    fn find_or_find_insert_slot_inner(
+    fn find_or_find_insert_slot_inner<C: ?Sized, E>(
         &self,
+        cx: &mut C,
         hash: u64,
-        eq: &mut dyn FnMut(usize) -> bool,
-    ) -> Result<usize, InsertSlot> {
+        eq: &mut dyn FnMut(&mut C, usize) -> Result<bool, E>,
+    ) -> Result<Result<usize, InsertSlot>, E> {
         let mut insert_slot = None;
 
         let h2_hash = h2(hash);
@@ -1694,8 +1857,8 @@ impl<A: Allocator + Clone> RawTableInner<A> {
             for bit in group.match_byte(h2_hash) {
                 let index = (probe_seq.pos + bit) & self.bucket_mask;
 
-                if likely(eq(index)) {
-                    return Ok(index);
+                if likely(eq(cx, index)?) {
+                    return Ok(Ok(index));
                 }
             }
 
@@ -1712,7 +1875,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
                 // least one. For tables smaller than the group width, there will still be an
                 // empty element in the current (and only) group due to the load factor.
                 unsafe {
-                    return Err(self.fix_insert_slot(insert_slot.unwrap_unchecked()));
+                    return Ok(Err(self.fix_insert_slot(insert_slot.unwrap_unchecked())));
                 }
             }
 
@@ -1793,7 +1956,12 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// `eq: &mut dyn FnMut(usize) -> bool` function does not return `true`,
     /// this function will also never return (will go into an infinite loop).
     #[inline(always)]
-    fn find_inner(&self, hash: u64, eq: &mut dyn FnMut(usize) -> bool) -> Option<usize> {
+    fn find_inner<C: ?Sized, E>(
+        &self,
+        cx: &mut C,
+        hash: u64,
+        eq: &mut dyn FnMut(&mut C, usize) -> Result<bool, E>,
+    ) -> Result<Option<usize>, E> {
         let h2_hash = h2(hash);
         let mut probe_seq = self.probe_seq(hash);
 
@@ -1817,13 +1985,13 @@ impl<A: Allocator + Clone> RawTableInner<A> {
                 // of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
                 let index = (probe_seq.pos + bit) & self.bucket_mask;
 
-                if likely(eq(index)) {
-                    return Some(index);
+                if likely(eq(cx, index)?) {
+                    return Ok(Some(index));
                 }
             }
 
             if likely(group.match_empty().any_bit_set()) {
-                return None;
+                return Ok(None);
             }
 
             probe_seq.move_next(self.bucket_mask);
@@ -2180,29 +2348,31 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// code generated, but it is eliminated by LLVM optimizations when inlined.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    unsafe fn reserve_rehash_inner(
+    unsafe fn reserve_rehash_inner<C: ?Sized, E>(
         &mut self,
+        cx: &mut C,
         additional: usize,
-        hasher: &dyn Fn(&mut Self, usize) -> u64,
+        hasher: &dyn Fn(&mut Self, &mut C, usize) -> Result<u64, E>,
         fallibility: Fallibility,
         layout: TableLayout,
         drop: Option<fn(*mut u8)>,
-    ) -> Result<(), TryReserveError> {
+    ) -> Result<Result<(), TryReserveError>, E> {
         // Avoid `Option::ok_or_else` because it bloats LLVM IR.
         let new_items = match self.items.checked_add(additional) {
             Some(new_items) => new_items,
-            None => return Err(fallibility.capacity_overflow()),
+            None => return Ok(Err(fallibility.capacity_overflow())),
         };
         let full_capacity = bucket_mask_to_capacity(self.bucket_mask);
         if new_items <= full_capacity / 2 {
             // Rehash in-place without re-allocating if we have plenty of spare
             // capacity that is locked up due to DELETED entries.
-            self.rehash_in_place(hasher, layout.size, drop);
-            Ok(())
+            self.rehash_in_place(cx, hasher, layout.size, drop)?;
+            Ok(Ok(()))
         } else {
             // Otherwise, conservatively resize to at least the next size up
             // to avoid churning deletes into frequent rehashes.
             self.resize_inner(
+                cx,
                 usize::max(new_items, full_capacity + 1),
                 hasher,
                 fallibility,
@@ -2218,14 +2388,18 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// code generated, but it is eliminated by LLVM optimizations when inlined.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    unsafe fn resize_inner(
+    unsafe fn resize_inner<C: ?Sized, E>(
         &mut self,
+        cx: &mut C,
         capacity: usize,
-        hasher: &dyn Fn(&mut Self, usize) -> u64,
+        hasher: &dyn Fn(&mut Self, &mut C, usize) -> Result<u64, E>,
         fallibility: Fallibility,
         layout: TableLayout,
-    ) -> Result<(), TryReserveError> {
-        let mut new_table = self.prepare_resize(layout, capacity, fallibility)?;
+    ) -> Result<Result<(), TryReserveError>, E> {
+        let mut new_table = match self.prepare_resize(layout, capacity, fallibility) {
+            Ok(new_table) => new_table,
+            Err(error) => return Ok(Err(error)),
+        };
 
         // Copy all elements to the new table.
         for i in 0..self.buckets() {
@@ -2234,7 +2408,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
             }
 
             // This may panic.
-            let hash = hasher(self, i);
+            let hash = hasher(self, cx, i)?;
 
             // We can use a simpler version of insert() here since:
             // - there are no DELETED entries.
@@ -2255,7 +2429,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
         // new table).
         mem::swap(self, &mut new_table);
 
-        Ok(())
+        Ok(Ok(()))
     }
 
     /// Rehashes the contents of the table in place (i.e. without changing the
@@ -2268,12 +2442,13 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     #[allow(clippy::inline_always)]
     #[cfg_attr(feature = "inline-more", inline(always))]
     #[cfg_attr(not(feature = "inline-more"), inline)]
-    unsafe fn rehash_in_place(
+    unsafe fn rehash_in_place<C: ?Sized, E>(
         &mut self,
-        hasher: &dyn Fn(&mut Self, usize) -> u64,
+        cx: &mut C,
+        hasher: &dyn Fn(&mut Self, &mut C, usize) -> Result<u64, E>,
         size_of: usize,
         drop: Option<fn(*mut u8)>,
-    ) {
+    ) -> Result<(), E> {
         // If the hash function panics then properly clean up any elements
         // that we haven't rehashed yet. We unfortunately can't preserve the
         // element since we lost their hash and have no way of recovering it
@@ -2305,7 +2480,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
 
             'inner: loop {
                 // Hash the current item
-                let hash = hasher(*guard, i);
+                let hash = hasher(*guard, cx, i)?;
 
                 // Search for a suitable place to put it
                 let new_i = guard.find_insert_slot(hash).index;
@@ -2346,6 +2521,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
         guard.growth_left = bucket_mask_to_capacity(guard.bucket_mask) - guard.items;
 
         mem::forget(guard);
+        Ok(())
     }
 
     #[inline]
@@ -3355,16 +3531,19 @@ mod test_map {
     use super::*;
 
     fn rehash_in_place<T>(table: &mut RawTable<T>, hasher: impl Fn(&T) -> u64) {
+        let hasher = infallible_hasher(hasher);
+
         unsafe {
-            table.table.rehash_in_place(
-                &|table, index| hasher(table.bucket::<T>(index).as_ref()),
+            into_ok(table.table.rehash_in_place(
+                &mut (),
+                &|table, cx, index| hasher(cx, table.bucket::<T>(index).as_ref()),
                 mem::size_of::<T>(),
                 if mem::needs_drop::<T>() {
                     Some(mem::transmute(ptr::drop_in_place::<T> as unsafe fn(*mut T)))
                 } else {
                     None
                 },
-            );
+            ));
         }
     }
 
