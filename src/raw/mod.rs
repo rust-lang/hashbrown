@@ -66,16 +66,6 @@ unsafe fn offset_from<T>(to: *const T, from: *const T) -> usize {
     to.offset_from(from) as usize
 }
 
-#[inline(always)]
-fn noop_context_eq<T>(mut f: impl FnMut(&T) -> bool) -> impl FnMut(&mut (), &T) -> bool {
-    move |_, value| f(value)
-}
-
-#[inline(always)]
-fn noop_context_hasher<T>(f: impl Fn(&T) -> u64) -> impl Fn(&mut (), &T) -> u64 {
-    move |_, value| f(value)
-}
-
 /// Whether memory allocation errors should return an error or abort.
 #[derive(Copy, Clone)]
 enum Fallibility {
@@ -987,8 +977,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// Returns true if an element was found.
     #[cfg(feature = "raw")]
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn erase_entry(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> bool {
-        self.erase_entry_with_context(&mut (), hash, noop_context_eq(eq))
+    pub fn erase_entry(&mut self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> bool {
+        self.erase_entry_with_context(&mut eq, hash, |eq, value| eq(value))
     }
 
     /// Finds and erases an element from the table, dropping it in place.
@@ -1002,7 +992,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
     ) -> bool {
         // Avoid `Option::map` because it bloats LLVM IR.
         if let Some(bucket) = self.find_with_context(cx, hash, eq) {
@@ -1032,8 +1022,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Finds and removes an element from the table, returning it.
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn remove_entry(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<T> {
-        self.remove_entry_with_context(&mut (), hash, noop_context_eq(eq))
+    pub fn remove_entry(&mut self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> Option<T> {
+        self.remove_entry_with_context(&mut eq, hash, |eq, value| eq(value))
     }
 
     /// Finds and removes an element from the table, returning it.
@@ -1045,7 +1035,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
     ) -> Option<T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
@@ -1085,7 +1075,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// Shrinks the table to fit `max(self.len(), min_size)` elements.
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn shrink_to(&mut self, min_size: usize, hasher: impl Fn(&T) -> u64) {
-        self.shrink_to_with_context(&mut (), min_size, noop_context_hasher(hasher));
+        self.shrink_to_with_context(&mut (), min_size, |_, value| hasher(value));
     }
 
     /// Shrinks the table to fit `max(self.len(), min_size)` elements.
@@ -1142,7 +1132,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// without reallocation.
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn reserve(&mut self, additional: usize, hasher: impl Fn(&T) -> u64) {
-        self.reserve_with_context(&mut (), additional, noop_context_hasher(hasher))
+        self.reserve_with_context(&mut (), additional, |_, value| hasher(value))
     }
 
     /// Ensures that at least `additional` items can be inserted into the table
@@ -1176,7 +1166,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         additional: usize,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<(), TryReserveError> {
-        self.try_reserve_with_context(&mut (), additional, noop_context_hasher(hasher))
+        self.try_reserve_with_context(&mut (), additional, |_, value| hasher(value))
     }
 
     /// Tries to ensure that at least `additional` items can be inserted into
@@ -1366,14 +1356,17 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub fn find_or_find_insert_slot(
         &mut self,
         hash: u64,
-        eq: impl FnMut(&T) -> bool,
+        mut eq: impl FnMut(&T) -> bool,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
+        // NB: Since `eq` is the only one which actually uses a mutable
+        // environment, it's the only one we need to explicitly pass around
+        // through the context.
         self.find_or_find_insert_slot_with_context(
-            &mut (),
+            &mut eq,
             hash,
-            noop_context_eq(eq),
-            noop_context_hasher(hasher),
+            |eq, value| eq(value),
+            |_, value| hasher(value),
         )
     }
 
@@ -1392,14 +1385,14 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        mut eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
         hasher: impl Fn(&mut C, &T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
         self.reserve_with_context(cx, 1, hasher);
 
         match self
             .table
-            .find_or_find_insert_slot_inner(cx, hash, &mut |cx, index| unsafe {
+            .find_or_find_insert_slot_inner(cx, hash, &|cx, index| unsafe {
                 eq(cx, self.bucket(index).as_ref())
             }) {
             Ok(index) => Ok(unsafe { self.bucket(index) }),
@@ -1427,8 +1420,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Searches for an element in the table.
     #[inline]
-    pub fn find(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
-        self.find_with_context(&mut (), hash, noop_context_eq(eq))
+    pub fn find(&self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> Option<Bucket<T>> {
+        self.find_with_context(&mut eq, hash, |eq, value| eq(value))
     }
 
     /// Searches for an element in the table.
@@ -1440,9 +1433,9 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &self,
         cx: &mut C,
         hash: u64,
-        mut eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
     ) -> Option<Bucket<T>> {
-        let result = self.table.find_inner(cx, hash, &mut |cx, index| unsafe {
+        let result = self.table.find_inner(cx, hash, &|cx, index| unsafe {
             eq(cx, self.bucket(index).as_ref())
         });
 
@@ -1455,8 +1448,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Gets a reference to an element in the table.
     #[inline]
-    pub fn get(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
-        self.get_with_context(&mut (), hash, noop_context_eq(eq))
+    pub fn get(&self, hash: u64, mut eq: impl FnMut(&T) -> bool) -> Option<&T> {
+        self.get_with_context(&mut eq, hash, |eq, value| eq(value))
     }
 
     /// Gets a reference to an element in the table.
@@ -1468,7 +1461,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &self,
         cx: &mut C,
         hash: u64,
-        eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
     ) -> Option<&T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
@@ -1479,8 +1472,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Gets a mutable reference to an element in the table.
     #[inline]
-    pub fn get_mut(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&mut T> {
-        self.get_mut_with_context(&mut (), hash, noop_context_eq(eq))
+    pub fn get_mut(&mut self, hash: u64, mut eq: impl Fn(&T) -> bool) -> Option<&mut T> {
+        self.get_mut_with_context(&mut eq, hash, |eq, value| eq(value))
     }
 
     /// Gets a mutable reference to an element in the table.
@@ -1492,7 +1485,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl FnMut(&mut C, &T) -> bool,
+        eq: impl Fn(&mut C, &T) -> bool,
     ) -> Option<&mut T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
@@ -1513,7 +1506,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub fn get_many_mut<const N: usize>(
         &mut self,
         hashes: [u64; N],
-        eq: impl FnMut(usize, &T) -> bool,
+        eq: impl Fn(usize, &T) -> bool,
     ) -> Option<[&'_ mut T; N]> {
         unsafe {
             let ptrs = self.get_many_mut_pointers(hashes, eq)?;
@@ -1534,7 +1527,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub unsafe fn get_many_unchecked_mut<const N: usize>(
         &mut self,
         hashes: [u64; N],
-        eq: impl FnMut(usize, &T) -> bool,
+        eq: impl Fn(usize, &T) -> bool,
     ) -> Option<[&'_ mut T; N]> {
         let ptrs = self.get_many_mut_pointers(hashes, eq)?;
         Some(mem::transmute_copy(&ptrs))
@@ -1543,7 +1536,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     unsafe fn get_many_mut_pointers<const N: usize>(
         &mut self,
         hashes: [u64; N],
-        mut eq: impl FnMut(usize, &T) -> bool,
+        eq: impl Fn(usize, &T) -> bool,
     ) -> Option<[*mut T; N]> {
         // TODO use `MaybeUninit::uninit_array` here instead once that's stable.
         let mut outs: MaybeUninit<[*mut T; N]> = MaybeUninit::uninit();
@@ -1860,7 +1853,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
         &self,
         cx: &mut C,
         hash: u64,
-        eq: &mut dyn FnMut(&mut C, usize) -> bool,
+        eq: &dyn Fn(&mut C, usize) -> bool,
     ) -> Result<usize, InsertSlot> {
         let mut insert_slot = None;
 
@@ -2010,15 +2003,15 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// This function does not make any changes to the `data` part of the table, or any
     /// changes to the `items` or `growth_left` field of the table.
     ///
-    /// The table must have at least 1 empty `bucket`, otherwise, if the
-    /// `eq: &mut dyn FnMut(usize) -> bool` function does not return `true`,
-    /// this function will also never return (will go into an infinite loop).
+    /// The table must have at least 1 empty `bucket`, otherwise, if the `eq:
+    /// &dyn Fn(&mut C, usize) -> bool` function does not return `true`, this
+    /// function will also never return (will go into an infinite loop).
     #[inline(always)]
     fn find_inner<C: ?Sized>(
         &self,
         cx: &mut C,
         hash: u64,
-        eq: &mut dyn FnMut(&mut C, usize) -> bool,
+        eq: &dyn Fn(&mut C, usize) -> bool,
     ) -> Option<usize> {
         let h2_hash = h2(hash);
         let mut probe_seq = self.probe_seq(hash);

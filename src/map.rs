@@ -3242,7 +3242,11 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilderMut<'a, K, V, S, A> {
     where
         for<'b> F: FnMut(&'b K) -> bool,
     {
-        match self.map.table.find(hash, |(k, _)| is_match(k)) {
+        match self
+            .map
+            .table
+            .find_with_context(&mut is_match, hash, |is_match, (k, _)| is_match(k))
+        {
             Some(elem) => RawEntryMut::Occupied(RawOccupiedEntryMut {
                 elem,
                 table: &mut self.map.table,
@@ -3313,7 +3317,11 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilder<'a, K, V, S, A> {
     where
         F: FnMut(&K) -> bool,
     {
-        match self.map.table.get(hash, |(k, _)| is_match(k)) {
+        match self
+            .map
+            .table
+            .get_with_context(&mut is_match, hash, |is_match, (k, _)| is_match(k))
+        {
             Some((key, value)) => Some((key, value)),
             None => None,
         }
