@@ -992,7 +992,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
+        eq: fn(&mut C, &T) -> bool,
     ) -> bool {
         // Avoid `Option::map` because it bloats LLVM IR.
         if let Some(bucket) = self.find_with_context(cx, hash, eq) {
@@ -1035,7 +1035,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
+        eq: fn(&mut C, &T) -> bool,
     ) -> Option<T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
@@ -1074,8 +1074,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
 
     /// Shrinks the table to fit `max(self.len(), min_size)` elements.
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn shrink_to(&mut self, min_size: usize, hasher: impl Fn(&T) -> u64) {
-        self.shrink_to_with_context(&mut (), min_size, |_, value| hasher(value));
+    pub fn shrink_to(&mut self, min_size: usize, mut hasher: impl Fn(&T) -> u64) {
+        self.shrink_to_with_context(&mut hasher, min_size, |hasher, value| hasher(value));
     }
 
     /// Shrinks the table to fit `max(self.len(), min_size)` elements.
@@ -1087,7 +1087,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         min_size: usize,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        hasher: fn(&mut C, &T) -> u64,
     ) {
         // Calculate the minimal number of elements that we need to reserve
         // space for.
@@ -1131,8 +1131,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     /// Ensures that at least `additional` items can be inserted into the table
     /// without reallocation.
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn reserve(&mut self, additional: usize, hasher: impl Fn(&T) -> u64) {
-        self.reserve_with_context(&mut (), additional, |_, value| hasher(value))
+    pub fn reserve(&mut self, additional: usize, mut hasher: impl Fn(&T) -> u64) {
+        self.reserve_with_context(&mut hasher, additional, |hasher, value| hasher(value))
     }
 
     /// Ensures that at least `additional` items can be inserted into the table
@@ -1145,7 +1145,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         additional: usize,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        hasher: fn(&mut C, &T) -> u64,
     ) {
         if unlikely(additional > self.table.growth_left) {
             // Avoid `Result::unwrap_or_else` because it bloats LLVM IR.
@@ -1164,9 +1164,9 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub fn try_reserve(
         &mut self,
         additional: usize,
-        hasher: impl Fn(&T) -> u64,
+        mut hasher: impl Fn(&T) -> u64,
     ) -> Result<(), TryReserveError> {
-        self.try_reserve_with_context(&mut (), additional, |_, value| hasher(value))
+        self.try_reserve_with_context(&mut hasher, additional, |hasher, value| hasher(value))
     }
 
     /// Tries to ensure that at least `additional` items can be inserted into
@@ -1179,7 +1179,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         additional: usize,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        hasher: fn(&mut C, &T) -> u64,
     ) -> Result<(), TryReserveError> {
         if additional > self.table.growth_left {
             self.reserve_rehash(cx, additional, hasher, Fallibility::Fallible)
@@ -1195,7 +1195,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         additional: usize,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        hasher: fn(&mut C, &T) -> u64,
         fallibility: Fallibility,
     ) -> Result<(), TryReserveError> {
         unsafe {
@@ -1233,7 +1233,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         capacity: usize,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        hasher: fn(&mut C, &T) -> u64,
         fallibility: Fallibility,
     ) -> Result<(), TryReserveError> {
         // SAFETY:
@@ -1356,17 +1356,17 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
     pub fn find_or_find_insert_slot(
         &mut self,
         hash: u64,
-        mut eq: impl FnMut(&T) -> bool,
+        eq: impl FnMut(&T) -> bool,
         hasher: impl Fn(&T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
         // NB: Since `eq` is the only one which actually uses a mutable
         // environment, it's the only one we need to explicitly pass around
         // through the context.
         self.find_or_find_insert_slot_with_context(
-            &mut eq,
+            &mut (eq, hasher),
             hash,
-            |eq, value| eq(value),
-            |_, value| hasher(value),
+            |(eq, _), value| eq(value),
+            |(_, hasher), value| hasher(value),
         )
     }
 
@@ -1385,8 +1385,8 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
-        hasher: impl Fn(&mut C, &T) -> u64,
+        eq: fn(&mut C, &T) -> bool,
+        hasher: fn(&mut C, &T) -> u64,
     ) -> Result<Bucket<T>, InsertSlot> {
         self.reserve_with_context(cx, 1, hasher);
 
@@ -1433,7 +1433,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
+        eq: fn(&mut C, &T) -> bool,
     ) -> Option<Bucket<T>> {
         let result = self.table.find_inner(cx, hash, &|cx, index| unsafe {
             eq(cx, self.bucket(index).as_ref())
@@ -1461,7 +1461,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
+        eq: fn(&mut C, &T) -> bool,
     ) -> Option<&T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
@@ -1485,7 +1485,7 @@ impl<T, A: Allocator + Clone> RawTable<T, A> {
         &mut self,
         cx: &mut C,
         hash: u64,
-        eq: impl Fn(&mut C, &T) -> bool,
+        eq: fn(&mut C, &T) -> bool,
     ) -> Option<&mut T> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.find_with_context(cx, hash, eq) {
