@@ -2369,7 +2369,7 @@ impl<A: Allocator + Clone> RawTableInner<A> {
     /// [`RawTableInner::find_insert_slot`]: RawTableInner::find_insert_slot
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[allow(clippy::inline_always)]
-    #[inline(always)]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     unsafe fn resize_inner(
         &mut self,
         capacity: usize,
