@@ -3942,6 +3942,168 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
     }
 }
 
+impl<'a, K: Eq, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
+    /// Reinserts the entry into the map.
+    ///
+    /// # Errors
+    ///
+    /// If the map already has an entry with this entry's key, nothing is
+    /// updated, and an error is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::hash_map::{HashMap, RawEntryMut};
+    ///
+    /// let mut map: HashMap<&str, u32> = [("a", 100), ("b", 200)].into();
+    ///
+    /// match map.raw_entry_mut().from_key(&"b") {
+    ///     RawEntryMut::Occupied(mut o) => {
+    ///         o.insert_key("c");
+    ///         o.reinsert().unwrap();
+    ///     },
+    ///     RawEntryMut::Vacant(v) => panic!(),
+    /// }
+    ///
+    /// assert_eq!(map[&"c"], 200);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn reinsert(&mut self) -> Result<(), ReinsertError>
+    where
+        K: Hash,
+        S: BuildHasher,
+    {
+        let hash = make_hash::<K, S>(self.hash_builder, self.key());
+        self.reinsert_hashed_nocheck(hash)
+    }
+
+    /// Reinserts the entry into the map.
+    ///
+    /// # Errors
+    ///
+    /// If the map already has an entry with this entry's key, nothing is
+    /// updated, and an error is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::hash::{BuildHasher, Hash};
+    /// use hashbrown::hash_map::{HashMap, RawEntryMut};
+    ///
+    /// fn compute_hash<K: Hash + ?Sized, S: BuildHasher>(hash_builder: &S, key: &K) -> u64 {
+    ///     use core::hash::Hasher;
+    ///     let mut state = hash_builder.build_hasher();
+    ///     key.hash(&mut state);
+    ///     state.finish()
+    /// }
+    ///
+    /// let mut map: HashMap<&str, u32> = [("a", 100), ("b", 200)].into();
+    /// let old_key = "b";
+    /// let hasher = map.hasher().clone();
+    /// let old_hash = compute_hash(&hasher, &old_key);
+    ///
+    /// match map.raw_entry_mut().from_key_hashed_nocheck(old_hash, &old_key) {
+    ///     RawEntryMut::Occupied(mut o) => {
+    ///         let key = "c";
+    ///         let hash = compute_hash(&hasher, &key);
+    ///         o.insert_key(key);
+    ///         o.reinsert_hashed_nocheck(hash).unwrap();
+    ///     }
+    ///     RawEntryMut::Vacant(v) => panic!()
+    /// }
+    ///
+    /// assert_eq!(map[&"c"], 200);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    #[allow(clippy::shadow_unrelated)]
+    pub fn reinsert_hashed_nocheck(&mut self, hash: u64) -> Result<(), ReinsertError>
+    where
+        K: Hash,
+        S: BuildHasher,
+    {
+        let key = unsafe { &self.elem.as_ref().0 };
+        let hasher = make_hasher::<_, V, S>(self.hash_builder);
+        let slot = match self
+            .table
+            .find_or_find_insert_slot(hash, equivalent_key(key), hasher)
+        {
+            Ok(bucket) if bucket.as_ptr() == self.elem.as_ptr() => return Ok(()),
+            Ok(_bucket) => return Err(ReinsertError),
+            Err(slot) => slot,
+        };
+        unsafe {
+            let value = self.table.remove(self.elem.clone()).0;
+            self.elem = self.table.insert_in_slot(hash, slot, value);
+        }
+        Ok(())
+    }
+
+    /// Reinserts the entry with a new key using a custom hash function.
+    ///
+    /// # Errors
+    ///
+    /// If the map already had the new key present, nothing is updated, and
+    /// an error is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::hash::{BuildHasher, Hash};
+    /// use hashbrown::hash_map::{HashMap, RawEntryMut};
+    ///
+    /// fn make_hasher<K, S>(hash_builder: &S) -> impl Fn(&K) -> u64 + '_
+    /// where
+    ///     K: Hash + ?Sized,
+    ///     S: BuildHasher,
+    /// {
+    ///     move |key: &K| {
+    ///         use core::hash::Hasher;
+    ///         let mut state = hash_builder.build_hasher();
+    ///         key.hash(&mut state);
+    ///         state.finish()
+    ///     }
+    /// }
+    ///
+    /// let mut map: HashMap<&str, u32> = [("a", 100), ("b", 200)].into();
+    /// let old_key = "b";
+    /// let hash_builder = map.hasher().clone();
+    /// let hasher = make_hasher(&hash_builder);
+    /// let old_hash = hasher(&old_key);
+    ///
+    /// match map.raw_entry_mut().from_hash(old_hash, |q| q == &old_key) {
+    ///     RawEntryMut::Occupied(mut o) => {
+    ///         let key = "c";
+    ///         let hash = hasher(&key);
+    ///         o.insert_key(key);
+    ///         o.reinsert_with_hasher(hash, hasher).unwrap();
+    ///     },
+    ///     RawEntryMut::Vacant(v) => panic!(),
+    /// }
+    ///
+    /// assert_eq!(map[&"c"], 200);
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn reinsert_with_hasher<H>(&mut self, hash: u64, hasher: H) -> Result<(), ReinsertError>
+    where
+        H: Fn(&K) -> u64,
+    {
+        let key = unsafe { &self.elem.as_ref().0 };
+        let slot = match self
+            .table
+            .find_or_find_insert_slot(hash, equivalent_key(key), |x| hasher(&x.0))
+        {
+            Ok(bucket) if bucket.as_ptr() == self.elem.as_ptr() => return Ok(()),
+            Ok(_bucket) => return Err(ReinsertError),
+            Err(slot) => slot,
+        };
+        unsafe {
+            let value = self.table.remove(self.elem.clone()).0;
+            self.elem = self.table.insert_in_slot(hash, slot, value);
+        }
+        Ok(())
+    }
+}
+
 impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
     /// Sets the value of the entry with the VacantEntry's key,
     /// and returns a mutable reference to it.
@@ -4624,6 +4786,34 @@ impl<'a, K: Debug, V: Debug, S, A: Allocator + Clone> fmt::Display
             self.entry.key(),
             self.entry.get(),
         )
+    }
+}
+
+/// An error returned by [`reinsert`](RawOccupiedEntryMut::reinsert) when an
+/// entry could not be reinserted because the map already contains an entry
+/// with the new key.
+///
+/// # Examples
+///
+/// ```
+/// use hashbrown::hash_map::{HashMap, RawEntryMut, ReinsertError};
+///
+/// let mut map: HashMap<&str, u32> = [("a", 100), ("b", 200)].into();
+///
+/// match map.raw_entry_mut().from_key(&"b") {
+///     RawEntryMut::Occupied(mut o) => {
+///         o.insert_key("a");
+///         assert_eq!(o.reinsert(), Err(ReinsertError));
+///     }
+///     RawEntryMut::Vacant(v) => panic!(),
+/// }
+/// ```
+#[derive(PartialEq, Eq, Debug)]
+pub struct ReinsertError;
+
+impl fmt::Display for ReinsertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("failed to reinsert entry, map already has entry with new key")
     }
 }
 
