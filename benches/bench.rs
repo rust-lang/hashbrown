@@ -22,6 +22,8 @@ type AHashMap<K, V> = HashMap<K, V, DefaultHashBuilder>;
 // This uses the hashmap from this crate with the default hasher of the stdlib.
 type StdHashMap<K, V> = HashMap<K, V, RandomState>;
 
+type GxHashMap<K, V> = HashMap<K, V, gxhash::GxBuildHasher>;
+
 // A random key iterator.
 #[derive(Clone, Copy)]
 struct RandomKeys {
@@ -58,11 +60,17 @@ impl Drop for DropType {
 }
 
 macro_rules! bench_suite {
-    ($bench_macro:ident, $bench_ahash_serial:ident, $bench_std_serial:ident,
-     $bench_ahash_highbits:ident, $bench_std_highbits:ident,
-     $bench_ahash_random:ident, $bench_std_random:ident) => {
+    ($bench_macro:ident, $bench_gxhash_serial:ident, $bench_ahash_serial:ident, $bench_std_serial:ident,
+     $bench_gxhash_highbits:ident, $bench_ahash_highbits:ident, $bench_std_highbits:ident,
+     $bench_gxhash_random:ident, $bench_ahash_random:ident, $bench_std_random:ident) => {
+        $bench_macro!($bench_gxhash_serial, GxHashMap, 0..);
         $bench_macro!($bench_ahash_serial, AHashMap, 0..);
         $bench_macro!($bench_std_serial, StdHashMap, 0..);
+        $bench_macro!(
+            $bench_gxhash_highbits,
+            GxHashMap,
+            (0..).map(usize::swap_bytes)
+        );
         $bench_macro!(
             $bench_ahash_highbits,
             AHashMap,
@@ -73,6 +81,7 @@ macro_rules! bench_suite {
             StdHashMap,
             (0..).map(usize::swap_bytes)
         );
+        $bench_macro!($bench_gxhash_random, GxHashMap, RandomKeys::new());
         $bench_macro!($bench_ahash_random, AHashMap, RandomKeys::new());
         $bench_macro!($bench_std_random, StdHashMap, RandomKeys::new());
     };
@@ -97,10 +106,13 @@ macro_rules! bench_insert {
 
 bench_suite!(
     bench_insert,
+    insert_gxhash_serial,
     insert_ahash_serial,
     insert_std_serial,
+    insert_gxhash_highbits,
     insert_ahash_highbits,
     insert_std_highbits,
+    insert_gxhash_random,
     insert_ahash_random,
     insert_std_random
 );
@@ -122,10 +134,13 @@ macro_rules! bench_grow_insert {
 
 bench_suite!(
     bench_grow_insert,
+    grow_insert_gxhash_serial,
     grow_insert_ahash_serial,
     grow_insert_std_serial,
+    grow_insert_gxhash_highbits,
     grow_insert_ahash_highbits,
     grow_insert_std_highbits,
+    grow_insert_gxhash_random,
     grow_insert_ahash_random,
     grow_insert_std_random
 );
@@ -158,10 +173,13 @@ macro_rules! bench_insert_erase {
 
 bench_suite!(
     bench_insert_erase,
+    insert_erase_gxhash_serial,
     insert_erase_ahash_serial,
     insert_erase_std_serial,
+    insert_erase_gxhash_highbits,
     insert_erase_ahash_highbits,
     insert_erase_std_highbits,
+    insert_erase_gxhash_random,
     insert_erase_ahash_random,
     insert_erase_std_random
 );
@@ -187,10 +205,13 @@ macro_rules! bench_lookup {
 
 bench_suite!(
     bench_lookup,
+    lookup_gxhash_serial,
     lookup_ahash_serial,
     lookup_std_serial,
+    lookup_gxhash_highbits,
     lookup_ahash_highbits,
     lookup_std_highbits,
+    lookup_gxhash_random,
     lookup_ahash_random,
     lookup_std_random
 );
@@ -216,10 +237,13 @@ macro_rules! bench_lookup_fail {
 
 bench_suite!(
     bench_lookup_fail,
+    lookup_fail_gxhash_serial,
     lookup_fail_ahash_serial,
     lookup_fail_std_serial,
+    lookup_fail_gxhash_highbits,
     lookup_fail_ahash_highbits,
     lookup_fail_std_highbits,
+    lookup_fail_gxhash_random,
     lookup_fail_ahash_random,
     lookup_fail_std_random
 );
@@ -244,10 +268,13 @@ macro_rules! bench_iter {
 
 bench_suite!(
     bench_iter,
+    iter_gxhash_serial,
     iter_ahash_serial,
     iter_std_serial,
+    iter_gxhash_highbits,
     iter_ahash_highbits,
     iter_std_highbits,
+    iter_gxhash_random,
     iter_ahash_random,
     iter_std_random
 );
