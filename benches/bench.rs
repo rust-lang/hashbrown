@@ -87,102 +87,102 @@ macro_rules! bench_suite {
     };
 }
 
-macro_rules! bench_insert {
-    ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::with_capacity_and_hasher(SIZE, Default::default());
-            b.iter(|| {
-                m.clear();
-                for i in ($keydist).take(SIZE) {
-                    m.insert(i, (DropType(i), [i; 20]));
-                }
-                black_box(&mut m);
-            });
-            eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
-        }
-    };
-}
+// macro_rules! bench_insert {
+//     ($name:ident, $maptype:ident, $keydist:expr) => {
+//         #[bench]
+//         fn $name(b: &mut Bencher) {
+//             let mut m = $maptype::with_capacity_and_hasher(SIZE, Default::default());
+//             b.iter(|| {
+//                 m.clear();
+//                 for i in ($keydist).take(SIZE) {
+//                     m.insert(i, (DropType(i), [i; 20]));
+//                 }
+//                 black_box(&mut m);
+//             });
+//             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
+//         }
+//     };
+// }
 
-bench_suite!(
-    bench_insert,
-    insert_gxhash_serial,
-    insert_ahash_serial,
-    insert_std_serial,
-    insert_gxhash_highbits,
-    insert_ahash_highbits,
-    insert_std_highbits,
-    insert_gxhash_random,
-    insert_ahash_random,
-    insert_std_random
-);
+// bench_suite!(
+//     bench_insert,
+//     insert_gxhash_serial,
+//     insert_ahash_serial,
+//     insert_std_serial,
+//     insert_gxhash_highbits,
+//     insert_ahash_highbits,
+//     insert_std_highbits,
+//     insert_gxhash_random,
+//     insert_ahash_random,
+//     insert_std_random
+// );
 
-macro_rules! bench_grow_insert {
-    ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            b.iter(|| {
-                let mut m = $maptype::default();
-                for i in ($keydist).take(SIZE) {
-                    m.insert(i, DropType(i));
-                }
-                black_box(&mut m);
-            })
-        }
-    };
-}
+// macro_rules! bench_grow_insert {
+//     ($name:ident, $maptype:ident, $keydist:expr) => {
+//         #[bench]
+//         fn $name(b: &mut Bencher) {
+//             b.iter(|| {
+//                 let mut m = $maptype::default();
+//                 for i in ($keydist).take(SIZE) {
+//                     m.insert(i, DropType(i));
+//                 }
+//                 black_box(&mut m);
+//             })
+//         }
+//     };
+// }
 
-bench_suite!(
-    bench_grow_insert,
-    grow_insert_gxhash_serial,
-    grow_insert_ahash_serial,
-    grow_insert_std_serial,
-    grow_insert_gxhash_highbits,
-    grow_insert_ahash_highbits,
-    grow_insert_std_highbits,
-    grow_insert_gxhash_random,
-    grow_insert_ahash_random,
-    grow_insert_std_random
-);
+// bench_suite!(
+//     bench_grow_insert,
+//     grow_insert_gxhash_serial,
+//     grow_insert_ahash_serial,
+//     grow_insert_std_serial,
+//     grow_insert_gxhash_highbits,
+//     grow_insert_ahash_highbits,
+//     grow_insert_std_highbits,
+//     grow_insert_gxhash_random,
+//     grow_insert_ahash_random,
+//     grow_insert_std_random
+// );
 
-macro_rules! bench_insert_erase {
-    ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut base = $maptype::default();
-            for i in ($keydist).take(SIZE) {
-                base.insert(i, DropType(i));
-            }
-            let skip = $keydist.skip(SIZE);
-            b.iter(|| {
-                let mut m = base.clone();
-                let mut add_iter = skip.clone();
-                let mut remove_iter = $keydist;
-                // While keeping the size constant,
-                // replace the first keydist with the second.
-                for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
-                    m.insert(add, DropType(add));
-                    black_box(m.remove(&remove));
-                }
-                black_box(m);
-            });
-            eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
-        }
-    };
-}
+// macro_rules! bench_insert_erase {
+//     ($name:ident, $maptype:ident, $keydist:expr) => {
+//         #[bench]
+//         fn $name(b: &mut Bencher) {
+//             let mut base = $maptype::default();
+//             for i in ($keydist).take(SIZE) {
+//                 base.insert(i, DropType(i));
+//             }
+//             let skip = $keydist.skip(SIZE);
+//             b.iter(|| {
+//                 let mut m = base.clone();
+//                 let mut add_iter = skip.clone();
+//                 let mut remove_iter = $keydist;
+//                 // While keeping the size constant,
+//                 // replace the first keydist with the second.
+//                 for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
+//                     m.insert(add, DropType(add));
+//                     black_box(m.remove(&remove));
+//                 }
+//                 black_box(m);
+//             });
+//             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
+//         }
+//     };
+// }
 
-bench_suite!(
-    bench_insert_erase,
-    insert_erase_gxhash_serial,
-    insert_erase_ahash_serial,
-    insert_erase_std_serial,
-    insert_erase_gxhash_highbits,
-    insert_erase_ahash_highbits,
-    insert_erase_std_highbits,
-    insert_erase_gxhash_random,
-    insert_erase_ahash_random,
-    insert_erase_std_random
-);
+// bench_suite!(
+//     bench_insert_erase,
+//     insert_erase_gxhash_serial,
+//     insert_erase_ahash_serial,
+//     insert_erase_std_serial,
+//     insert_erase_gxhash_highbits,
+//     insert_erase_ahash_highbits,
+//     insert_erase_std_highbits,
+//     insert_erase_gxhash_random,
+//     insert_erase_ahash_random,
+//     insert_erase_std_random
+// );
 
 macro_rules! bench_lookup {
     ($name:ident, $maptype:ident, $keydist:expr) => {
@@ -195,7 +195,7 @@ macro_rules! bench_lookup {
 
             b.iter(|| {
                 for i in $keydist.take(SIZE) {
-                    black_box(m.get(&i));
+                    black_box(m.get(black_box(&i)));
                 }
             });
             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
@@ -216,68 +216,68 @@ bench_suite!(
     lookup_std_random
 );
 
-macro_rules! bench_lookup_fail {
-    ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::default();
-            let mut iter = $keydist;
-            for i in (&mut iter).take(SIZE) {
-                m.insert(i, DropType(i));
-            }
+// macro_rules! bench_lookup_fail {
+//     ($name:ident, $maptype:ident, $keydist:expr) => {
+//         #[bench]
+//         fn $name(b: &mut Bencher) {
+//             let mut m = $maptype::default();
+//             let mut iter = $keydist;
+//             for i in (&mut iter).take(SIZE) {
+//                 m.insert(i, DropType(i));
+//             }
 
-            b.iter(|| {
-                for i in (&mut iter).take(SIZE) {
-                    black_box(m.get(&i));
-                }
-            })
-        }
-    };
-}
+//             b.iter(|| {
+//                 for i in (&mut iter).take(SIZE) {
+//                     black_box(m.get(&i));
+//                 }
+//             })
+//         }
+//     };
+// }
 
-bench_suite!(
-    bench_lookup_fail,
-    lookup_fail_gxhash_serial,
-    lookup_fail_ahash_serial,
-    lookup_fail_std_serial,
-    lookup_fail_gxhash_highbits,
-    lookup_fail_ahash_highbits,
-    lookup_fail_std_highbits,
-    lookup_fail_gxhash_random,
-    lookup_fail_ahash_random,
-    lookup_fail_std_random
-);
+// bench_suite!(
+//     bench_lookup_fail,
+//     lookup_fail_gxhash_serial,
+//     lookup_fail_ahash_serial,
+//     lookup_fail_std_serial,
+//     lookup_fail_gxhash_highbits,
+//     lookup_fail_ahash_highbits,
+//     lookup_fail_std_highbits,
+//     lookup_fail_gxhash_random,
+//     lookup_fail_ahash_random,
+//     lookup_fail_std_random
+// );
 
-macro_rules! bench_iter {
-    ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::default();
-            for i in ($keydist).take(SIZE) {
-                m.insert(i, DropType(i));
-            }
+// macro_rules! bench_iter {
+//     ($name:ident, $maptype:ident, $keydist:expr) => {
+//         #[bench]
+//         fn $name(b: &mut Bencher) {
+//             let mut m = $maptype::default();
+//             for i in ($keydist).take(SIZE) {
+//                 m.insert(i, DropType(i));
+//             }
 
-            b.iter(|| {
-                for i in &m {
-                    black_box(i);
-                }
-            })
-        }
-    };
-}
+//             b.iter(|| {
+//                 for i in &m {
+//                     black_box(i);
+//                 }
+//             })
+//         }
+//     };
+// }
 
-bench_suite!(
-    bench_iter,
-    iter_gxhash_serial,
-    iter_ahash_serial,
-    iter_std_serial,
-    iter_gxhash_highbits,
-    iter_ahash_highbits,
-    iter_std_highbits,
-    iter_gxhash_random,
-    iter_ahash_random,
-    iter_std_random
-);
+// bench_suite!(
+//     bench_iter,
+//     iter_gxhash_serial,
+//     iter_ahash_serial,
+//     iter_std_serial,
+//     iter_gxhash_highbits,
+//     iter_ahash_highbits,
+//     iter_std_highbits,
+//     iter_gxhash_random,
+//     iter_ahash_random,
+//     iter_std_random
+// );
 
 #[bench]
 fn clone_small(b: &mut Bencher) {
