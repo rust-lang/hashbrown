@@ -1824,6 +1824,53 @@ where
         (k_ref, v_ref)
     }
 
+    /// Inserts a key-value pair into the map using pre-generated key hash value.
+    ///
+    /// This method is intended to be used by monads that overwrite the default
+    /// hash method of the inner type.
+    ///
+    /// No value is returned from this function, this functions intent is to be
+    /// a fast insertion path for container types.
+    ///
+    /// [`None`]: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
+    /// [`std::collections`]: https://doc.rust-lang.org/std/collections/index.html
+    /// [module-level documentation]: https://doc.rust-lang.org/std/collections/index.html#insert-and-complex-keys
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use std::hash::{BuildHasher, Hash, Hasher};
+    ///
+    /// let mut map = HashMap::new();
+    /// let key: i32 = 37;
+    ///
+    /// let hasher = map.hasher();
+    /// let mut state = hasher.build_hasher();
+    /// key.hash(&mut state);
+    /// let hash = state.finish();
+    ///
+    /// map.insert_with_hash(hash, key, 'a');
+    /// assert_eq!(map[&37], 'a');
+    ///
+    /// map.insert_with_hash(hash, key, 'b');
+    /// assert_eq!(map[&37], 'b');
+    /// ```
+    pub fn insert_with_hash(&mut self, hash: u64, k: K, mut v: V) {
+        let hasher = make_hasher::<_, V, S>(&self.hash_builder);
+        match self
+            .table
+            .find_or_find_insert_slot(hash, equivalent_key(&k), hasher)
+        {
+            Ok(bucket) => unsafe {
+                mem::swap(&mut bucket.as_mut().1, &mut v);
+            },
+            Err(slot) => unsafe {
+                self.table.insert_in_slot(hash, slot, (k, v));
+            },
+        };
+    }
+
     /// Tries to insert a key-value pair into the map, and returns
     /// a mutable reference to the value in the entry.
     ///
