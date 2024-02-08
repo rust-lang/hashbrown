@@ -13,7 +13,7 @@ edition = "2018"
 
 [dependencies]
 # For the default hasher
-ahash = { version = "0.7.0", default-features = false, optional = true }
+ahash = { version = "0.8.0", default-features = false, optional = true }
 
 # For external trait impls
 rayon = { version = "1.0", optional = true }
@@ -38,7 +38,8 @@ doc-comment = "0.3.1"
 [features]
 default = ["ahash", "inline-more"]
 
-ahash-compile-time-rng = ["ahash/compile-time-rng"]
+# Ahash changed behavior here, this feature is now a no-op for backcompat
+ahash-compile-time-rng = []
 nightly = []
 rustc-internal-api = []
 rustc-dep-of-std = [
