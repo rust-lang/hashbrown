@@ -1693,9 +1693,15 @@ where
     where
         Q: Hash + Equivalent<K>,
     {
-        let hashes = self.build_hashes_inner(ks);
-        self.table
-            .get_many_mut(hashes, |i, (k, _)| ks[i].equivalent(k))
+        let hash_builder = &self.hash_builder;
+
+        let mut iter = ks.into_iter().map(|key| {
+            (
+                make_hash::<Q, S>(hash_builder, key),
+                equivalent_key::<Q, K, V>(key),
+            )
+        });
+        self.table.get_many_mut_from_iter(&mut iter)
     }
 
     unsafe fn get_many_unchecked_mut_inner<Q: ?Sized, const N: usize>(
@@ -1705,20 +1711,15 @@ where
     where
         Q: Hash + Equivalent<K>,
     {
-        let hashes = self.build_hashes_inner(ks);
-        self.table
-            .get_many_unchecked_mut(hashes, |i, (k, _)| ks[i].equivalent(k))
-    }
+        let hash_builder = &self.hash_builder;
 
-    fn build_hashes_inner<Q: ?Sized, const N: usize>(&self, ks: [&Q; N]) -> [u64; N]
-    where
-        Q: Hash + Equivalent<K>,
-    {
-        let mut hashes = [0_u64; N];
-        for i in 0..N {
-            hashes[i] = make_hash::<Q, S>(&self.hash_builder, ks[i]);
-        }
-        hashes
+        let mut iter = ks.into_iter().map(|key| {
+            (
+                make_hash::<Q, S>(hash_builder, key),
+                equivalent_key::<Q, K, V>(key),
+            )
+        });
+        self.table.get_many_unchecked_mut_from_iter(&mut iter)
     }
 
     /// Inserts a key-value pair into the map.
