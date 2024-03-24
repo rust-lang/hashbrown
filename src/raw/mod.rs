@@ -105,28 +105,29 @@ trait SizedTypeProperties: Sized {
 impl<T> SizedTypeProperties for T {}
 
 /// Control byte value for an empty bucket.
-const EMPTY: u8 = 0b1111_1111;
+const EMPTY: u8 = 0b0111_1111;
 
 /// Control byte value for a deleted bucket.
-const DELETED: u8 = 0b1000_0000;
+const DELETED: u8 = 0b0111_1110;
 
 /// Checks whether a control byte represents a full bucket (top bit is clear).
 #[inline]
 fn is_full(ctrl: u8) -> bool {
-    ctrl & 0x80 == 0
+    (ctrl as i8) < (DELETED as i8)
 }
 
 /// Checks whether a control byte represents a special value (top bit is set).
 #[inline]
 fn is_special(ctrl: u8) -> bool {
-    ctrl & 0x80 != 0
+    (ctrl as i8) >= (DELETED as i8)
 }
 
 /// Checks whether a special control value is EMPTY (just check 1 bit).
 #[inline]
 fn special_is_empty(ctrl: u8) -> bool {
     debug_assert!(is_special(ctrl));
-    ctrl & 0x01 != 0
+
+    ctrl == EMPTY
 }
 
 /// Primary hash function, used to select the initial bucket to probe from.
@@ -137,23 +138,46 @@ fn h1(hash: u64) -> usize {
     hash as usize
 }
 
-// Constant for h2 function that grabing the top 7 bits of the hash.
+// Constant for h2 function that grabing the top 8 bits of the hash.
 const MIN_HASH_LEN: usize = if mem::size_of::<usize>() < mem::size_of::<u64>() {
     mem::size_of::<usize>()
 } else {
     mem::size_of::<u64>()
 };
 
-/// Secondary hash function, saved in the low 7 bits of the control byte.
+/// Secondary hash function, saved in the control byte.
 #[inline]
 #[allow(clippy::cast_possible_truncation)]
 fn h2(hash: u64) -> u8 {
-    // Grab the top 7 bits of the hash. While the hash is normally a full 64-bit
+    const fn compute_control() -> [u8; 256] {
+        let mut result = [0; 256];
+
+        let mut i = 0;
+
+        while i < 256 {
+            result[i] = i as u8;
+
+            i += 1;
+        }
+
+        //  Avoid overlap with special values.
+        result[EMPTY as usize] += 8;
+        result[DELETED as usize] += 8;
+
+        result
+    }
+
+    #[rustfmt::skip]
+    const CONTROL: [u8; 256] = compute_control();
+
+    // Grab the top 8 bits of the hash. While the hash is normally a full 64-bit
     // value, some hash functions (such as FxHash) produce a usize result
     // instead, which means that the top 32 bits are 0 on 32-bit platforms.
     // So we use MIN_HASH_LEN constant to handle this.
-    let top7 = hash >> (MIN_HASH_LEN * 8 - 7);
-    (top7 & 0x7f) as u8 // truncation
+    let top8 = hash >> (MIN_HASH_LEN * 8 - 7);
+
+    // Lookup matching control byte, avoid overlap with special control.
+    CONTROL[top8 as usize]
 }
 
 /// Probe sequence based on triangular numbers, which is guaranteed (since our
@@ -4559,6 +4583,179 @@ impl<T, A: Allocator> RawExtractIf<'_, T, A> {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod test_group {
+    use super::*;
+
+    type RawGroup = [u8; Group::WIDTH];
+
+    fn load(raw: RawGroup) -> Group {
+        //  Safety:
+        //  -   `raw.len() == Group::WIDTH`.
+        unsafe { Group::load(raw.as_ptr()) }
+    }
+
+    fn store(group: Group) -> RawGroup {
+        #[repr(align(16))]
+        struct Aligned(RawGroup);
+
+        let mut result = Aligned(RawGroup::default());
+
+        //  Safety:
+        //  -   `raw.len() == Group::WIDTH`.
+        //  -   `raw` is suitably aligned.
+        unsafe { group.store_aligned(result.0.as_mut_ptr()) }
+
+        result.0
+    }
+
+    #[test]
+    fn test_match_byte() {
+        use ::alloc::vec::Vec;
+
+        let mut raw = RawGroup::default();
+
+        for (i, slot) in raw.iter_mut().enumerate() {
+            if i % 2 == 0 {
+                *slot = EMPTY;
+            } else {
+                *slot = 0x44;
+            }
+        }
+
+        let group = load(raw);
+
+        let is_match = group.match_byte(0x44);
+
+        let matched: Vec<_> = is_match.into_iter().collect();
+
+        assert_eq!(Group::WIDTH / 2, matched.len(), "{matched:?}");
+        assert!(matched.iter().all(|i| *i % 2 != 0), "{matched:?}");
+    }
+
+    #[test]
+    fn test_match_empty() {
+        use ::alloc::vec::Vec;
+
+        let mut raw = RawGroup::default();
+
+        for (i, slot) in raw.iter_mut().enumerate() {
+            if i % 2 == 0 {
+                *slot = EMPTY;
+            } else {
+                *slot = DELETED;
+            }
+        }
+
+        let group = load(raw);
+
+        let is_empty = group.match_empty();
+
+        let empty: Vec<_> = is_empty.into_iter().collect();
+
+        assert_eq!(Group::WIDTH / 2, empty.len(), "{empty:?}");
+        assert!(empty.iter().all(|i| *i % 2 == 0), "{empty:?}");
+    }
+
+    #[test]
+    fn test_match_empty_or_deleted() {
+        use ::alloc::vec::Vec;
+
+        let mut raw = RawGroup::default();
+
+        for (i, slot) in raw.iter_mut().enumerate() {
+            let value = match i % 4 {
+                0 => EMPTY,
+                1 => 2,
+                2 => DELETED,
+                3 => 255,
+                _ => unreachable!("i % 4 < 4"),
+            };
+
+            *slot = value;
+        }
+
+        let group = load(raw);
+
+        let is_empty_or_deleted = group.match_empty_or_deleted();
+
+        let empty_or_deleted: Vec<_> = is_empty_or_deleted.into_iter().collect();
+
+        assert_eq!(
+            Group::WIDTH / 2,
+            empty_or_deleted.len(),
+            "{empty_or_deleted:?}"
+        );
+        assert!(
+            empty_or_deleted.iter().all(|i| *i % 2 == 0),
+            "{empty_or_deleted:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_full() {
+        use ::alloc::vec::Vec;
+
+        let mut raw = RawGroup::default();
+
+        for (i, slot) in raw.iter_mut().enumerate() {
+            let value = match i % 4 {
+                0 => EMPTY,
+                1 => 2,
+                2 => DELETED,
+                3 => 255,
+                _ => unreachable!("i % 4 < 4"),
+            };
+
+            *slot = value;
+        }
+
+        let group = load(raw);
+
+        let is_full = group.match_full();
+
+        let full: Vec<_> = is_full.into_iter().collect();
+
+        assert_eq!(Group::WIDTH / 2, full.len(), "{full:?}");
+        assert!(full.iter().all(|i| *i % 2 != 0), "{full:?}");
+    }
+
+    #[test]
+    fn test_convert_special_to_empty_and_full_to_deleted() {
+        use ::alloc::vec::Vec;
+
+        let mut raw = RawGroup::default();
+
+        for (i, slot) in raw.iter_mut().enumerate() {
+            let value = match i % 4 {
+                0 => EMPTY,
+                1 => 2,
+                2 => DELETED,
+                3 => 255,
+                _ => unreachable!("i % 4 < 4"),
+            };
+
+            *slot = value;
+        }
+
+        let group = load(raw);
+
+        let converted = group.convert_special_to_empty_and_full_to_deleted();
+
+        dbg!(store(converted));
+
+        let empty: Vec<_> = converted.match_empty().into_iter().collect();
+
+        assert_eq!(Group::WIDTH / 2, empty.len(), "{empty:?}");
+        assert!(empty.iter().all(|i| *i % 2 == 0), "{empty:?}");
+
+        let deleted: Vec<_> = converted.match_byte(DELETED).into_iter().collect();
+
+        assert_eq!(Group::WIDTH / 2, deleted.len(), "{deleted:?}");
+        assert!(deleted.iter().all(|i| *i % 2 != 0), "{deleted:?}");
     }
 }
 
