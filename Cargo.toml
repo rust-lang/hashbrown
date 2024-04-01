@@ -52,6 +52,7 @@ default = ["ahash", "inline-more", "allocator-api2"]
 nightly = ["allocator-api2?/nightly", "bumpalo/allocator_api"]
 
 rustc-internal-api = []
+
 rustc-dep-of-std = [
     "nightly",
     "core",
@@ -59,12 +60,29 @@ rustc-dep-of-std = [
     "alloc",
     "rustc-internal-api",
 ]
+
 raw = []
 
 # Enables usage of `#[inline]` on far more functions than by default in this
 # crate. This may lead to a performance increase but often comes at a compile
 # time cost.
 inline-more = []
+
+# If no overflow-tracker is selected, then the default is none.
+#
+# A single tracker can be selected at any time, selecting two or more is an error.
+
+# Bloom filter overflow-tracker, ala boost::unordered_flat_map.
+overflow-tracker-bloom-1-u8 = []
+
+# Bloom filter overflow-tracker, with more accuracy.
+overflow-tracker-bloom-1-u16 = []
+
+# Counter overflow-tracker, ala F14.
+overflow-tracker-counter-u8 = []
+
+# Hybrid overflow-tracker, mixing a counter and a bloom filter.
+overflow-tracker-hybrid = []
 
 [package.metadata.docs.rs]
 features = ["nightly", "rayon", "serde", "raw"]

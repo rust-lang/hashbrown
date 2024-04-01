@@ -3,10 +3,9 @@ use crate::scopeguard::{guard, ScopeGuard};
 use crate::TryReserveError;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
-use core::mem;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
-use core::{hint, ptr};
+use core::{hint, mem, ptr};
 
 cfg_if! {
     // Use the SSE2 implementation if possible: it allows us to scan 16 buckets
@@ -41,12 +40,15 @@ cfg_if! {
 }
 
 mod alloc;
+
 pub(crate) use self::alloc::{do_alloc, Allocator, Global};
 
 mod bitmask;
+mod overflow;
 
 use self::bitmask::BitMaskIter;
 use self::imp::Group;
+use self::overflow::OverflowTracker;
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -110,6 +112,9 @@ const EMPTY: u8 = 0b1111_1111;
 /// Control byte value for a deleted bucket.
 const DELETED: u8 = 0b1000_0000;
 
+/// Size of the tracker, to avoid repeated calls to `mem::size_of::<OverflowTracker>()` which is chunky.
+const OVERFLOW_TRACKER_SIZE: usize = mem::size_of::<OverflowTracker>();
+
 /// Checks whether a control byte represents a full bucket (top bit is clear).
 #[inline]
 fn is_full(ctrl: u8) -> bool {
@@ -166,11 +171,32 @@ fn h2(hash: u64) -> u8 {
 /// Proof that the probe will visit every group in the table:
 /// <https://fgiesen.wordpress.com/2015/02/22/triangular-numbers-mod-2n/>
 struct ProbeSeq {
-    pos: usize,
+    //  Index of the first element of the group.
+    group: usize,
     stride: usize,
 }
 
 impl ProbeSeq {
+    fn with_hash(hash: u64, bucket_mask: usize) -> Self {
+        debug_assert!((bucket_mask + 1).is_power_of_two(), "{bucket_mask}");
+
+        // This is the same as `hash as usize % self.buckets()` because the number
+        // of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
+        let group = h1(hash) & bucket_mask;
+
+        Self {
+            group: group / Group::WIDTH * Group::WIDTH,
+            stride: 0,
+        }
+    }
+
+    fn with_displacement(index: usize, displacement: u8) -> Self {
+        Self {
+            group: index / Group::WIDTH * Group::WIDTH,
+            stride: Group::WIDTH * (displacement as usize),
+        }
+    }
+
     #[inline]
     fn move_next(&mut self, bucket_mask: usize) {
         // We should have found an empty bucket by now and ended the probe.
@@ -179,9 +205,22 @@ impl ProbeSeq {
             "Went past end of probe sequence"
         );
 
+        debug_assert_eq!(0, self.group % Group::WIDTH, "{}", self.group);
+
         self.stride += Group::WIDTH;
-        self.pos += self.stride;
-        self.pos &= bucket_mask;
+
+        self.group += self.stride;
+        self.group &= bucket_mask;
+    }
+
+    #[inline]
+    fn move_prev(&mut self, bucket_mask: usize) {
+        debug_assert_eq!(0, self.group % Group::WIDTH, "{}", self.group);
+
+        self.group = self.group.wrapping_sub(self.stride);
+        self.group &= bucket_mask;
+
+        self.stride -= Group::WIDTH;
     }
 }
 
@@ -257,10 +296,22 @@ impl TableLayout {
         debug_assert!(buckets.is_power_of_two());
 
         let TableLayout { size, ctrl_align } = self;
+
         // Manual layout calculation since Layout methods are not yet stable.
         let ctrl_offset =
             size.checked_mul(buckets)?.checked_add(ctrl_align - 1)? & !(ctrl_align - 1);
         let len = ctrl_offset.checked_add(buckets + Group::WIDTH)?;
+
+        // No special consideration for alignment is necessary, as `OverflowTracker` has a lower alignment than `Group`.
+        debug_assert!(mem::align_of::<OverflowTracker>() <= ctrl_align);
+
+        let len = len.checked_add(OVERFLOW_TRACKER_SIZE * Self::number_groups(buckets))?;
+
+        let len = if OverflowTracker::TRACK_REMOVALS {
+            len.checked_add(buckets / 2)?
+        } else {
+            len
+        };
 
         // We need an additional check to ensure that the allocation doesn't
         // exceed `isize::MAX` (https://github.com/rust-lang/rust/pull/95295).
@@ -272,6 +323,12 @@ impl TableLayout {
             unsafe { Layout::from_size_align_unchecked(len, ctrl_align) },
             ctrl_offset,
         ))
+    }
+
+    #[inline]
+    fn number_groups(buckets: usize) -> usize {
+        // Allocate one more group, to match the extra control bytes allocated.
+        (buckets + Group::WIDTH - 1) / Group::WIDTH + 1
     }
 }
 
@@ -797,7 +854,7 @@ struct RawTableInner {
     // number of buckets in the table.
     bucket_mask: usize,
 
-    // [Padding], T1, T2, ..., Tlast, C1, C2, ...
+    // [Padding], T1, T2, ..., Tlast, C1, C2, ..., Clast, O1, O2, ..., Olast, D1, D2, ..., Dlast
     //                                ^ points here
     ctrl: NonNull<u8>,
 
@@ -857,7 +914,7 @@ impl<T, A: Allocator> RawTable<T, A> {
 
     /// Allocates a new hash table with the given number of buckets.
     ///
-    /// The control bytes are left uninitialized.
+    /// The control bytes and overflow-tracking bytes are left uninitialized.
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn new_uninitialized(
         alloc: A,
@@ -1046,7 +1103,8 @@ impl<T, A: Allocator> RawTable<T, A> {
         // Avoid `Option::map` because it bloats LLVM IR.
         if let Some(bucket) = self.find(hash, eq) {
             unsafe {
-                self.erase(bucket);
+                self.erase_no_drop(bucket);
+                bucket.drop();
             }
             true
         } else {
@@ -1382,10 +1440,12 @@ impl<T, A: Allocator> RawTable<T, A> {
         F: FnOnce(T) -> Option<T>,
     {
         let index = self.bucket_index(&bucket);
-        let old_ctrl = *self.table.ctrl(index);
         debug_assert!(self.is_bucket_full(index));
+
         let old_growth_left = self.table.growth_left;
-        let item = self.remove(bucket).0;
+        let old_ctrl = self.table.half_erase(index);
+        let item = bucket.read();
+
         if let Some(new_item) = f(item) {
             self.table.growth_left = old_growth_left;
             self.table.set_ctrl(index, old_ctrl);
@@ -1393,6 +1453,7 @@ impl<T, A: Allocator> RawTable<T, A> {
             self.bucket(index).write(new_item);
             true
         } else {
+            self.table.untrack_overflow_trail(index, old_ctrl);
             false
         }
     }
@@ -1786,10 +1847,17 @@ impl RawTableInner {
                     capacity_to_buckets(capacity).ok_or_else(|| fallibility.capacity_overflow())?;
 
                 let result = Self::new_uninitialized(alloc, table_layout, buckets, fallibility)?;
+
                 // SAFETY: We checked that the table is allocated and therefore the table already has
                 // `self.bucket_mask + 1 + Group::WIDTH` number of control bytes (see TableLayout::calculate_layout_for)
                 // so writing `self.num_ctrl_bytes() == bucket_mask + 1 + Group::WIDTH` bytes is safe.
                 result.ctrl(0).write_bytes(EMPTY, result.num_ctrl_bytes());
+                result
+                    .overflow(0)
+                    .write_bytes(0, result.num_overflow_trackers());
+                result
+                    .displacement(0)
+                    .write_bytes(0, result.num_displacement_bytes());
 
                 Ok(result)
             }
@@ -1825,7 +1893,7 @@ impl RawTableInner {
     /// bytes outside the range of the table are filled with [`EMPTY`] entries. These will unfortunately
     /// trigger a match of [`RawTableInner::find_insert_slot_in_group`] function. This is because
     /// the `Some(bit)` returned by `group.match_empty_or_deleted().lowest_set_bit()` after masking
-    /// (`(probe_seq.pos + bit) & self.bucket_mask`) may point to a full bucket that is already occupied.
+    /// (`(probe_seq.group + bit) & self.bucket_mask`) may point to a full bucket that is already occupied.
     /// We detect this situation here and perform a second scan starting at the beginning of the table.
     /// This second scan is guaranteed to find an empty slot (due to the load factor) before hitting the
     /// trailing control bytes (containing [`EMPTY`] bytes).
@@ -1867,7 +1935,12 @@ impl RawTableInner {
     unsafe fn fix_insert_slot(&self, mut index: usize) -> InsertSlot {
         // SAFETY: The caller of this function ensures that `index` is in the range `0..=self.bucket_mask`.
         if unlikely(self.is_bucket_full(index)) {
-            debug_assert!(self.bucket_mask < Group::WIDTH);
+            debug_assert!(
+                self.bucket_mask < Group::WIDTH,
+                "{} >= {}",
+                self.bucket_mask,
+                Group::WIDTH
+            );
             // SAFETY:
             //
             // * Since the caller of this function ensures that the control bytes are properly
@@ -1879,7 +1952,7 @@ impl RawTableInner {
             // * Because the caller of this function ensures that the index was provided by the
             //   `self.find_insert_slot_in_group()` function, so for for tables larger than the
             //   group width (self.buckets() >= Group::WIDTH), we will never end up in the given
-            //   branch, since `(probe_seq.pos + bit) & self.bucket_mask` in `find_insert_slot_in_group`
+            //   branch, since `(probe_seq.group + bit) & self.bucket_mask` in `find_insert_slot_in_group`
             //   cannot return a full bucket index. For tables smaller than the group width, calling
             //   the `unwrap_unchecked` function is also safe, as the trailing control bytes outside
             //   the range of the table are filled with EMPTY bytes (and we know for sure that there
@@ -1905,9 +1978,9 @@ impl RawTableInner {
         let bit = group.match_empty_or_deleted().lowest_set_bit();
 
         if likely(bit.is_some()) {
-            // This is the same as `(probe_seq.pos + bit) % self.buckets()` because the number
+            // This is the same as `(probe_seq.group + bit) % self.buckets()` because the number
             // of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
-            Some((probe_seq.pos + bit.unwrap()) & self.bucket_mask)
+            Some((probe_seq.group + bit.unwrap()) & self.bucket_mask)
         } else {
             None
         }
@@ -1957,28 +2030,28 @@ impl RawTableInner {
         let mut insert_slot = None;
 
         let h2_hash = h2(hash);
-        let mut probe_seq = self.probe_seq(hash);
+        let mut probe_seq = ProbeSeq::with_hash(hash, self.bucket_mask);
 
         loop {
             // SAFETY:
             // * Caller of this function ensures that the control bytes are properly initialized.
             //
-            // * `ProbeSeq.pos` cannot be greater than `self.bucket_mask = self.buckets() - 1`
+            // * `ProbeSeq.group` cannot be greater than `self.bucket_mask = self.buckets() - 1`
             //   of the table due to masking with `self.bucket_mask` and also because mumber of
             //   buckets is a power of two (see `self.probe_seq` function).
             //
-            // * Even if `ProbeSeq.pos` returns `position == self.bucket_mask`, it is safe to
-            //   call `Group::load` due to the extended control bytes range, which is
+            // * Even if `ProbeSeq.group` returns `position == self.bucket_mask`, it is safe to
+            //   call `load_group` due to the extended control bytes range, which is
             //  `self.bucket_mask + 1 + Group::WIDTH` (in fact, this means that the last control
             //   byte will never be read for the allocated table);
             //
-            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
-            //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
+            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.group` will
+            //   always return "0" (zero), so `load_group` will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let group = unsafe { self.load_group(probe_seq.group) };
 
             for bit in group.match_byte(h2_hash) {
-                let index = (probe_seq.pos + bit) & self.bucket_mask;
+                let index = (probe_seq.group + bit) & self.bucket_mask;
 
                 if likely(eq(index)) {
                     return Ok(index);
@@ -1991,9 +2064,15 @@ impl RawTableInner {
                 insert_slot = self.find_insert_slot_in_group(&group, &probe_seq);
             }
 
-            // Only stop the search if the group contains at least one empty element.
-            // Otherwise, the element that we are looking for might be in a following group.
-            if likely(group.match_empty().any_bit_set()) {
+            // The search ends with a slot if:
+            //
+            // - There is an empty slot available, hence the element that we are looking for did not overflow.
+            // - The overflow tracker indicates the absence of overflow, and there is a deleted slot available.
+            if likely(
+                group.match_empty().any_bit_set()
+                    || (group.match_empty_or_deleted().any_bit_set()
+                        && !self.may_have_overflowed(probe_seq.group, h2_hash)),
+            ) {
                 // We must have found a insert slot by now, since the current group contains at
                 // least one. For tables smaller than the group width, there will still be an
                 // empty element in the current (and only) group due to the load factor.
@@ -2066,6 +2145,7 @@ impl RawTableInner {
     unsafe fn prepare_insert_slot(&mut self, hash: u64) -> (usize, u8) {
         // SAFETY: Caller of this function ensures that the control bytes are properly initialized.
         let index: usize = self.find_insert_slot(hash).index;
+
         // SAFETY:
         // 1. The `find_insert_slot` function either returns an `index` less than or
         //    equal to `self.buckets() = self.bucket_mask + 1` of the table, or never
@@ -2074,6 +2154,8 @@ impl RawTableInner {
         //    allocated
         let old_ctrl = *self.ctrl(index);
         self.set_ctrl_h2(index, hash);
+        self.track_overflow_trail(InsertSlot { index }, hash);
+
         (index, old_ctrl)
     }
 
@@ -2107,24 +2189,24 @@ impl RawTableInner {
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     unsafe fn find_insert_slot(&self, hash: u64) -> InsertSlot {
-        let mut probe_seq = self.probe_seq(hash);
+        let mut probe_seq = ProbeSeq::with_hash(hash, self.bucket_mask);
         loop {
             // SAFETY:
             // * Caller of this function ensures that the control bytes are properly initialized.
             //
-            // * `ProbeSeq.pos` cannot be greater than `self.bucket_mask = self.buckets() - 1`
+            // * `ProbeSeq.group` cannot be greater than `self.bucket_mask = self.buckets() - 1`
             //   of the table due to masking with `self.bucket_mask` and also because mumber of
             //   buckets is a power of two (see `self.probe_seq` function).
             //
-            // * Even if `ProbeSeq.pos` returns `position == self.bucket_mask`, it is safe to
-            //   call `Group::load` due to the extended control bytes range, which is
+            // * Even if `ProbeSeq.group` returns `position == self.bucket_mask`, it is safe to
+            //   call `load_group` due to the extended control bytes range, which is
             //  `self.bucket_mask + 1 + Group::WIDTH` (in fact, this means that the last control
             //   byte will never be read for the allocated table);
             //
-            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
-            //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
+            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.group` will
+            //   always return "0" (zero), so `load_group` will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let group = unsafe { self.load_group(probe_seq.group) };
 
             let index = self.find_insert_slot_in_group(&group, &probe_seq);
             if likely(index.is_some()) {
@@ -2165,36 +2247,39 @@ impl RawTableInner {
     #[inline(always)]
     unsafe fn find_inner(&self, hash: u64, eq: &mut dyn FnMut(usize) -> bool) -> Option<usize> {
         let h2_hash = h2(hash);
-        let mut probe_seq = self.probe_seq(hash);
+        let mut probe_seq = ProbeSeq::with_hash(hash, self.bucket_mask);
 
         loop {
             // SAFETY:
             // * Caller of this function ensures that the control bytes are properly initialized.
             //
-            // * `ProbeSeq.pos` cannot be greater than `self.bucket_mask = self.buckets() - 1`
+            // * `ProbeSeq.group` cannot be greater than `self.bucket_mask = self.buckets() - 1`
             //   of the table due to masking with `self.bucket_mask`.
             //
-            // * Even if `ProbeSeq.pos` returns `position == self.bucket_mask`, it is safe to
-            //   call `Group::load` due to the extended control bytes range, which is
+            // * Even if `ProbeSeq.group` returns `position == self.bucket_mask`, it is safe to
+            //   call `load_group` due to the extended control bytes range, which is
             //  `self.bucket_mask + 1 + Group::WIDTH` (in fact, this means that the last control
             //   byte will never be read for the allocated table);
             //
-            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
-            //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
+            // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.group` will
+            //   always return "0" (zero), so `load_group` will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new_in).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let group = unsafe { self.load_group(probe_seq.group) };
 
             for bit in group.match_byte(h2_hash) {
-                // This is the same as `(probe_seq.pos + bit) % self.buckets()` because the number
+                // This is the same as `(probe_seq.group + bit) % self.buckets()` because the number
                 // of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
-                let index = (probe_seq.pos + bit) & self.bucket_mask;
+                let index = (probe_seq.group + bit) & self.bucket_mask;
 
                 if likely(eq(index)) {
                     return Some(index);
                 }
             }
 
-            if likely(group.match_empty().any_bit_set()) {
+            if likely(
+                group.match_empty().any_bit_set()
+                    || !self.may_have_overflowed(probe_seq.group, h2_hash),
+            ) {
                 return None;
             }
 
@@ -2203,12 +2288,15 @@ impl RawTableInner {
     }
 
     /// Prepares for rehashing data in place (that is, without allocating new memory).
+    ///
     /// Converts all full index `control bytes` to `DELETED` and all `DELETED` control
     /// bytes to `EMPTY`, i.e. performs the following conversion:
     ///
     /// - `EMPTY` control bytes   -> `EMPTY`;
     /// - `DELETED` control bytes -> `EMPTY`;
     /// - `FULL` control bytes    -> `DELETED`.
+    ///
+    /// Erases all overflow trackers.
     ///
     /// This function does not make any changes to the `data` parts of the table,
     /// or any changes to the the `items` or `growth_left` field of the table.
@@ -2272,6 +2360,11 @@ impl RawTableInner {
             self.ctrl(0)
                 .copy_to(self.ctrl(self.buckets()), Group::WIDTH);
         }
+
+        self.overflow(0)
+            .write_bytes(0, self.num_overflow_trackers());
+        self.displacement(0)
+            .write_bytes(0, self.num_displacement_bytes());
     }
 
     /// Returns an iterator over every element in the table.
@@ -2596,21 +2689,6 @@ impl RawTableInner {
         self.ctrl.cast()
     }
 
-    /// Returns an iterator-like object for a probe sequence on the table.
-    ///
-    /// This iterator never terminates, but is guaranteed to visit each bucket
-    /// group exactly once. The loop using `probe_seq` must terminate upon
-    /// reaching a group containing an empty bucket.
-    #[inline]
-    fn probe_seq(&self, hash: u64) -> ProbeSeq {
-        ProbeSeq {
-            // This is the same as `hash as usize % self.buckets()` because the number
-            // of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
-            pos: h1(hash) & self.bucket_mask,
-            stride: 0,
-        }
-    }
-
     /// Returns the index of a bucket for which a value must be inserted if there is enough rooom
     /// in the table, otherwise returns error
     #[cfg(feature = "raw")]
@@ -2631,13 +2709,15 @@ impl RawTableInner {
         self.growth_left -= usize::from(special_is_empty(old_ctrl));
         self.set_ctrl_h2(index, hash);
         self.items += 1;
+
+        self.track_overflow_trail(InsertSlot { index }, hash);
     }
 
     #[inline]
     fn is_in_same_group(&self, i: usize, new_i: usize, hash: u64) -> bool {
-        let probe_seq_pos = self.probe_seq(hash).pos;
+        let probe_seq_pos = ProbeSeq::with_hash(hash, self.bucket_mask).group;
         let probe_index =
-            |pos: usize| (pos.wrapping_sub(probe_seq_pos) & self.bucket_mask) / Group::WIDTH;
+            |group: usize| (group.wrapping_sub(probe_seq_pos) & self.bucket_mask) / Group::WIDTH;
         probe_index(i) == probe_index(new_i)
     }
 
@@ -2737,7 +2817,7 @@ impl RawTableInner {
     #[inline]
     unsafe fn set_ctrl(&mut self, index: usize, ctrl: u8) {
         // Replicate the first Group::WIDTH control bytes at the end of
-        // the array without using a branch. If the tables smaller than
+        // the array without using a branch. If the table is smaller than
         // the group width (self.buckets() < Group::WIDTH),
         // `index2 = Group::WIDTH + index`, otherwise `index2` is:
         //
@@ -2797,6 +2877,195 @@ impl RawTableInner {
         self.ctrl.as_ptr().add(index)
     }
 
+    /// Returns an aligned group.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline]
+    unsafe fn load_group(&self, index: usize) -> Group {
+        debug_assert_eq!(0, index % Group::WIDTH, "{index}");
+
+        Group::load_aligned(self.ctrl(index))
+    }
+
+    /// Returns whether a given element may have overflowed the current index, based on its `h2`.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline(always)]
+    unsafe fn may_have_overflowed(&self, index: usize, h2: u8) -> bool {
+        let tracker = self.overflow(index) as *const OverflowTracker;
+
+        (*tracker).may_have_overflowed(h2)
+    }
+
+    /// Marks an element with hash `hash` has having overflowed from its initial group until `slot`.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline(always)]
+    unsafe fn track_overflow_trail(&mut self, slot: InsertSlot, hash: u64) {
+        #[inline(never)]
+        unsafe fn track(this: &mut RawTableInner, slot: InsertSlot, hash: u64) {
+            let h2_hash = h2(hash);
+            let mut probe_seq = ProbeSeq::with_hash(hash, this.bucket_mask);
+            let mut displacement = 0usize;
+
+            while probe_seq.group / Group::WIDTH != slot.index / Group::WIDTH {
+                let tracker = this.overflow(probe_seq.group);
+
+                (*tracker).add(h2_hash);
+                displacement += 1;
+
+                probe_seq.move_next(this.bucket_mask);
+            }
+
+            if !OverflowTracker::TRACK_REMOVALS {
+                return;
+            }
+
+            if displacement > 0xF {
+                return;
+            }
+
+            this.set_displacement(slot.index, displacement as u8);
+        }
+
+        let probe_seq = ProbeSeq::with_hash(hash, self.bucket_mask);
+
+        // Insertion at ideal group, no overflow to track.
+        if probe_seq.group / Group::WIDTH == slot.index / Group::WIDTH {
+            return;
+        }
+
+        track(self, slot, hash);
+    }
+
+    /// Removes mark of an element with hash `hash` has having overflowed from its initial group until `slot`.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline(always)]
+    unsafe fn untrack_overflow_trail(&mut self, index: usize, h2_hash: u8) {
+        #[inline(never)]
+        unsafe fn untrack(this: &mut RawTableInner, index: usize, h2_hash: u8, displacement: u8) {
+            this.set_displacement(index, 0);
+
+            let mut probe_seq = ProbeSeq::with_displacement(index, displacement);
+
+            for _ in 0..displacement {
+                probe_seq.move_prev(this.bucket_mask);
+
+                let tracker = this.overflow(probe_seq.group);
+
+                (*tracker).remove(h2_hash);
+            }
+
+            debug_assert_eq!(0, probe_seq.stride);
+        }
+
+        if !OverflowTracker::TRACK_REMOVALS {
+            return;
+        }
+
+        // SAFETY: The caller must uphold the safety rules for the [`RawTableInner::untrack_overflow_trail`].
+        let displacement = self.get_displacement(index);
+
+        if likely(displacement == 0) {
+            return;
+        }
+
+        untrack(self, index, h2_hash, displacement);
+    }
+
+    /// Returns a pointer to an `OverflowTracker`.
+    ///
+    /// The `index` is that of the _element_, not that of the group of the element.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline(always)]
+    unsafe fn overflow(&self, index: usize) -> *mut OverflowTracker {
+        //  ZST is special-cased.
+        #![allow(clippy::zst_offset)]
+
+        debug_assert!(index / Group::WIDTH < self.num_overflow_trackers());
+
+        if OVERFLOW_TRACKER_SIZE == 0 {
+            return invalid_mut(mem::align_of::<OverflowTracker>());
+        }
+
+        // SAFETY: The caller must uphold the safety rules for the [`RawTableInner::overflow`]
+        let ctrl_end = self.ctrl.as_ptr().add(self.num_ctrl_bytes());
+
+        let overflow_start: *mut OverflowTracker = ctrl_end as *mut OverflowTracker;
+
+        overflow_start.add(index / Group::WIDTH)
+    }
+
+    /// Returns the displacement.
+    ///
+    /// # Safety
+    ///
+    /// See `displacement`.
+    #[inline(always)]
+    unsafe fn get_displacement(&self, index: usize) -> u8 {
+        debug_assert!(OverflowTracker::TRACK_REMOVALS);
+
+        let pair = self.displacement(index);
+
+        if index % 2 == 0 {
+            *pair & 0xF
+        } else {
+            *pair >> 4
+        }
+    }
+
+    /// Sets the displacement.
+    ///
+    /// # Safety
+    ///
+    /// See `displacement`.
+    #[inline]
+    unsafe fn set_displacement(&mut self, index: usize, displacement: u8) {
+        debug_assert!(OverflowTracker::TRACK_REMOVALS);
+        debug_assert!(displacement <= 0xF, "{displacement}");
+
+        let pair = self.displacement(index);
+
+        *pair = if index % 2 == 0 {
+            (*pair & 0xF0) | displacement
+        } else {
+            (displacement << 4) | (*pair & 0xF)
+        };
+    }
+
+    /// Returns a pointer to the displacement pair.
+    ///
+    /// # Safety
+    ///
+    /// See `ctrl`.
+    #[inline(always)]
+    unsafe fn displacement(&self, index: usize) -> *mut u8 {
+        debug_assert!(index <= self.bucket_mask);
+
+        if !OverflowTracker::TRACK_REMOVALS {
+            return invalid_mut(mem::align_of::<u8>());
+        }
+
+        // SAFETY: The caller must uphold the safety rules for the [`RawTableInner::displacement`]
+        let ctrl_end = self.ctrl.as_ptr().add(self.num_ctrl_bytes());
+
+        let overflow_end = ctrl_end.add(OVERFLOW_TRACKER_SIZE * self.num_overflow_trackers());
+
+        overflow_end.add(index / 2)
+    }
+
     #[inline]
     fn buckets(&self) -> usize {
         self.bucket_mask + 1
@@ -2816,6 +3085,20 @@ impl RawTableInner {
     #[inline]
     fn num_ctrl_bytes(&self) -> usize {
         self.bucket_mask + 1 + Group::WIDTH
+    }
+
+    #[inline]
+    fn num_overflow_trackers(&self) -> usize {
+        (self.bucket_mask + Group::WIDTH) / Group::WIDTH + 1
+    }
+
+    #[inline]
+    fn num_displacement_bytes(&self) -> usize {
+        if OverflowTracker::TRACK_REMOVALS {
+            (self.bucket_mask + 1) / 2
+        } else {
+            0
+        }
     }
 
     #[inline]
@@ -3186,13 +3469,14 @@ impl RawTableInner {
                 // are properly initialized.
                 let new_i = guard.find_insert_slot(hash).index;
 
-                // Probing works by scanning through all of the control
-                // bytes in groups, which may not be aligned to the group
-                // size. If both the new and old position fall within the
-                // same unaligned group, then there is no benefit in moving
+                // Probing works by scanning through all of the control bytes
+                // in groups. If both the new and old position fall within
+                // the same group, then there is no benefit in moving
                 // it and we can just continue to the next item.
                 if likely(guard.is_in_same_group(i, new_i, hash)) {
                     guard.set_ctrl_h2(i, hash);
+                    guard.track_overflow_trail(InsertSlot { index: i }, hash);
+
                     continue 'outer;
                 }
 
@@ -3201,6 +3485,8 @@ impl RawTableInner {
                 // We are moving the current item to a new position. Write
                 // our H2 to the control byte of the new position.
                 let prev_ctrl = guard.replace_ctrl_h2(new_i, hash);
+                guard.track_overflow_trail(InsertSlot { index: new_i }, hash);
+
                 if prev_ctrl == EMPTY {
                     guard.set_ctrl(i, EMPTY);
                     // If the target slot is empty, simply move the current
@@ -3333,6 +3619,10 @@ impl RawTableInner {
         if !self.is_empty_singleton() {
             unsafe {
                 self.ctrl(0).write_bytes(EMPTY, self.num_ctrl_bytes());
+                self.overflow(0)
+                    .write_bytes(0, self.num_overflow_trackers());
+                self.displacement(0)
+                    .write_bytes(0, self.num_displacement_bytes());
             }
         }
         self.items = 0;
@@ -3374,16 +3664,57 @@ impl RawTableInner {
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     unsafe fn erase(&mut self, index: usize) {
+        let prev_ctrl = self.half_erase(index);
+
+        self.untrack_overflow_trail(index, prev_ctrl);
+    }
+
+    /// Erases the [`Bucket`]'s control byte at the given index so that it does not
+    /// triggered as full, decreases the `items` of the table and, if it can be done,
+    /// increases `self.growth_left`.
+    ///
+    /// This function does NOT adjust overflow/displacements. If actually removing the
+    /// element, the caller of this function must call `untrack_overflow_trail`. See
+    /// `erase` for unconditional removals.
+    ///
+    /// This function does not actually erase / drop the [`Bucket`] itself, i.e. it
+    /// does not make any changes to the `data` parts of the table. The caller of this
+    /// function must take care to properly drop the `data`, otherwise calling this
+    /// function may result in a memory leak.
+    ///
+    /// # Safety
+    ///
+    /// You must observe the following safety rules when calling this function:
+    ///
+    /// * The [`RawTableInner`] has already been allocated;
+    ///
+    /// * It must be the full control byte at the given position;
+    ///
+    /// * The `index` must not be greater than the `RawTableInner.bucket_mask`, i.e.
+    ///   `index <= RawTableInner.bucket_mask` or, in other words, `(index + 1)` must
+    ///   be no greater than the number returned by the function [`RawTableInner::buckets`].
+    ///
+    /// Calling this function on a table that has not been allocated results in [`undefined behavior`].
+    ///
+    /// Calling this function on a table with no elements is unspecified, but calling subsequent
+    /// functions is likely to result in [`undefined behavior`] due to overflow subtraction
+    /// (`self.items -= 1 cause overflow when self.items == 0`).
+    ///
+    /// See also [`Bucket::as_ptr`] method, for more information about of properly removing
+    /// or saving `data element` from / into the [`RawTable`] / [`RawTableInner`].
+    ///
+    /// [`RawTableInner::buckets`]: RawTableInner::buckets
+    /// [`Bucket::as_ptr`]: Bucket::as_ptr
+    /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    #[inline]
+    unsafe fn half_erase(&mut self, index: usize) -> u8 {
         debug_assert!(self.is_bucket_full(index));
 
-        // This is the same as `index.wrapping_sub(Group::WIDTH) % self.buckets()` because
-        // the number of buckets is a power of two, and `self.bucket_mask = self.buckets() - 1`.
-        let index_before = index.wrapping_sub(Group::WIDTH) & self.bucket_mask;
         // SAFETY:
         // - The caller must uphold the safety contract for `erase` method;
-        // - `index_before` is guaranteed to be in range due to masking with `self.bucket_mask`
-        let empty_before = Group::load(self.ctrl(index_before)).match_empty();
-        let empty_after = Group::load(self.ctrl(index)).match_empty();
+        let empty = self
+            .load_group(index / Group::WIDTH * Group::WIDTH)
+            .match_empty();
 
         // Inserting and searching in the map is performed by two key functions:
         //
@@ -3408,28 +3739,28 @@ impl RawTableInner {
         //   function may stumble upon an `EMPTY` byte before finding the desired element and stop
         //   searching.
         //
-        // Thus it is necessary to check all bytes after and before the erased element. If we are in
-        // a contiguous `Group` of `FULL` or `DELETED` bytes (the number of `FULL` or `DELETED` bytes
-        // before and after is greater than or equal to `Group::WIDTH`), then we must mark our byte as
-        // `DELETED` in order for the `find_inner` function to go further. On the other hand, if there
-        // is at least one `EMPTY` slot in the `Group`, then the `find_inner` function will still stumble
-        // upon an `EMPTY` byte, so we can safely mark our erased byte as `EMPTY` as well.
+        // Thus it is necessary to check all bytes in the group of the erased element. If the group is
+        // composed only of `FULL` and `DELETED` bytes, then we must mark our byte as `DELETED` in order
+        // for the `find_inner` function to go further. On the other hand, if there is at least one `EMPTY`
+        // slot in the group, then the `find_inner` function will still stumble upon it, so we can safely
+        // mark our erased byte as `EMPTY` as well.
         //
-        // Finally, since `index_before == (index.wrapping_sub(Group::WIDTH) & self.bucket_mask) == index`
-        // and given all of the above, tables smaller than the group width (self.buckets() < Group::WIDTH)
-        // cannot have `DELETED` bytes.
-        //
-        // Note that in this context `leading_zeros` refers to the bytes at the end of a group, while
-        // `trailing_zeros` refers to the bytes at the beginning of a group.
-        let ctrl = if empty_before.leading_zeros() + empty_after.trailing_zeros() >= Group::WIDTH {
-            DELETED
-        } else {
+        // Note that overflow tracking does not alter this picture, since overflow tracking is only checked
+        // in the absence of `EMPTY` control byte in the group.
+        let ctrl = if empty.any_bit_set() {
             self.growth_left += 1;
             EMPTY
+        } else {
+            DELETED
         };
+
         // SAFETY: the caller must uphold the safety contract for `erase` method.
+        let prev_ctrl = *self.ctrl(index);
         self.set_ctrl(index, ctrl);
+
         self.items -= 1;
+
+        prev_ctrl
     }
 }
 
@@ -3538,6 +3869,7 @@ impl<T: Clone, A: Allocator + Clone> Clone for RawTable<T, A> {
 trait RawTableClone {
     unsafe fn clone_from_spec(&mut self, source: &Self);
 }
+
 impl<T: Clone, A: Allocator + Clone> RawTableClone for RawTable<T, A> {
     default_fn! {
         #[cfg_attr(feature = "inline-more", inline)]
@@ -3546,10 +3878,19 @@ impl<T: Clone, A: Allocator + Clone> RawTableClone for RawTable<T, A> {
         }
     }
 }
+
 #[cfg(feature = "nightly")]
 impl<T: Copy, A: Allocator + Clone> RawTableClone for RawTable<T, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn clone_from_spec(&mut self, source: &Self) {
+        source.table.displacement(0).copy_to_nonoverlapping(
+            self.table.displacement(0),
+            self.table.num_displacement_bytes(),
+        );
+        source
+            .table
+            .overflow(0)
+            .copy_to_nonoverlapping(self.table.overflow(0), self.table.num_overflow_trackers());
         source
             .table
             .ctrl(0)
@@ -3571,7 +3912,15 @@ impl<T: Clone, A: Allocator + Clone> RawTable<T, A> {
     /// - The control bytes are not initialized yet.
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn clone_from_impl(&mut self, source: &Self) {
-        // Copy the control bytes unchanged. We do this in a single pass
+        // Copy the displacements, overflow trackers & control bytes unchanged. We do this in a single pass.
+        source.table.displacement(0).copy_to_nonoverlapping(
+            self.table.displacement(0),
+            self.table.num_displacement_bytes(),
+        );
+        source
+            .table
+            .overflow(0)
+            .copy_to_nonoverlapping(self.table.overflow(0), self.table.num_overflow_trackers());
         source
             .table
             .ctrl(0)
@@ -3675,6 +4024,7 @@ unsafe impl<#[may_dangle] T, A: Allocator> Drop for RawTable<T, A> {
         }
     }
 }
+
 #[cfg(not(feature = "nightly"))]
 impl<T, A: Allocator> Drop for RawTable<T, A> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -4316,6 +4666,7 @@ unsafe impl<#[may_dangle] T, A: Allocator> Drop for RawIntoIter<T, A> {
         }
     }
 }
+
 #[cfg(not(feature = "nightly"))]
 impl<T, A: Allocator> Drop for RawIntoIter<T, A> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -4473,13 +4824,14 @@ impl<T> RawIterHash<T> {
         }
     }
 }
+
 impl RawIterHashInner {
     #[cfg_attr(feature = "inline-more", inline)]
     #[cfg(feature = "raw")]
     unsafe fn new(table: &RawTableInner, hash: u64) -> Self {
         let h2_hash = h2(hash);
-        let probe_seq = table.probe_seq(hash);
-        let group = Group::load(table.ctrl(probe_seq.pos));
+        let probe_seq = ProbeSeq::with_hash(hash, table.bucket_mask);
+        let group = table.load_group(probe_seq.group);
         let bitmask = group.match_byte(h2_hash).into_iter();
 
         RawIterHashInner {
@@ -4519,7 +4871,7 @@ impl Iterator for RawIterHashInner {
         unsafe {
             loop {
                 if let Some(bit) = self.bitmask.next() {
-                    let index = (self.probe_seq.pos + bit) & self.bucket_mask;
+                    let index = (self.probe_seq.group + bit) & self.bucket_mask;
                     return Some(index);
                 }
                 if likely(self.group.match_empty().any_bit_set()) {
@@ -4529,11 +4881,11 @@ impl Iterator for RawIterHashInner {
 
                 // Can't use `RawTableInner::ctrl` here as we don't have
                 // an actual `RawTableInner` reference to use.
-                let index = self.probe_seq.pos;
+                let index = self.probe_seq.group;
                 debug_assert!(index < self.bucket_mask + 1 + Group::WIDTH);
-                let group_ctrl = self.ctrl.as_ptr().add(index);
+                let group_ctrl = self.ctrl.as_ptr().add(index / Group::WIDTH * Group::WIDTH);
 
-                self.group = Group::load(group_ctrl);
+                self.group = Group::load_aligned(group_ctrl);
                 self.bitmask = self.group.match_byte(self.h2_hash).into_iter();
             }
         }
@@ -4559,6 +4911,42 @@ impl<T, A: Allocator> RawExtractIf<'_, T, A> {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod test_probe_seq {
+    use super::*;
+
+    #[test]
+    fn move_next_prev() {
+        const BUCKET_MASK: usize = if Group::WIDTH == 16 { 255 } else { 127 };
+
+        const EXPECTED_PROBE_SEQUENCE: [usize; 5] = if Group::WIDTH == 16 {
+            [160, 176, 208, 0, 64]
+        } else {
+            [80, 88, 104, 0, 32]
+        };
+
+        let mut probe = ProbeSeq::with_hash(10 * Group::WIDTH as u64, BUCKET_MASK);
+
+        for group in EXPECTED_PROBE_SEQUENCE {
+            assert_eq!(group, probe.group);
+
+            probe.move_next(BUCKET_MASK);
+        }
+
+        for (i, group) in EXPECTED_PROBE_SEQUENCE.into_iter().enumerate() {
+            let mut rev_probe = ProbeSeq::with_displacement(group, i as u8);
+
+            assert_eq!(group, rev_probe.group);
+
+            for k in (0..i).rev() {
+                rev_probe.move_prev(BUCKET_MASK);
+
+                assert_eq!(EXPECTED_PROBE_SEQUENCE[k], rev_probe.group);
+            }
+        }
     }
 }
 
@@ -4641,6 +5029,15 @@ mod test_map {
                 .table
                 .ctrl(0)
                 .write_bytes(EMPTY, table.table.num_ctrl_bytes());
+
+            table
+                .table
+                .overflow(0)
+                .write_bytes(0, table.table.num_overflow_trackers());
+            table
+                .table
+                .displacement(0)
+                .write_bytes(0, table.table.num_displacement_bytes());
 
             // SAFETY: table.capacity() is guaranteed to be smaller than table.buckets()
             table.table.ctrl(0).write_bytes(0, table.capacity());
