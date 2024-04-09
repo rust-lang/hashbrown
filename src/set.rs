@@ -955,6 +955,10 @@ where
     /// Inserts a value computed from `f` into the set if the given `value` is
     /// not present, then returns a reference to the value in the set.
     ///
+    /// # Panics
+    ///
+    /// Will panic if `f`'s return value is not equivalent to the query `value`.
+    ///
     /// # Examples
     ///
     /// ```
@@ -970,6 +974,13 @@ where
     /// }
     /// assert_eq!(set.len(), 4); // a new "fish" was inserted
     /// ```
+    ///
+    /// The following example will panic because the new value doesn't match.
+    ///
+    /// ```should_panic
+    /// let mut set = hashbrown::HashSet::new();
+    /// set.get_or_insert_with("rust", |_| String::new());
+    /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_or_insert_with<Q: ?Sized, F>(&mut self, value: &Q, f: F) -> &T
     where
@@ -981,7 +992,11 @@ where
         self.map
             .raw_entry_mut()
             .from_key(value)
-            .or_insert_with(|| (f(value), ()))
+            .or_insert_with(|| {
+                let new = f(value);
+                assert!(value.equivalent(&new), "new value is not equivalent");
+                (new, ())
+            })
             .0
     }
 
