@@ -46,6 +46,9 @@ doc-comment = "0.3.1"
 bumpalo = { version = "3.13.0", features = ["allocator-api2"] }
 rkyv = { version = "0.7.42", features = ["validation"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
 [features]
 default = ["ahash", "inline-more", "allocator-api2"]
 
