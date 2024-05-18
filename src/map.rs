@@ -8962,6 +8962,7 @@ mod test_map {
 #[cfg(all(test, unix))]
 mod test_map_with_mmap_allocations {
     use super::HashMap;
+    use crate::raw::prev_pow2;
     use allocator_api2::alloc::{AllocError, Allocator};
     use core::alloc::Layout;
     use core::ptr::{null_mut, NonNull};
@@ -9033,13 +9034,22 @@ mod test_map_with_mmap_allocations {
         let alloc = MmapAllocator::new().unwrap();
         let mut map: HashMap<usize, (), _, _> = HashMap::with_capacity_in(1, alloc);
 
-        let rough_bucket_size = core::mem::size_of::<(usize, (), usize)>();
-        let x = alloc.page_size / rough_bucket_size;
-        // x * ¾ should account for control bytes and also load factor, at
-        // least for realistic page sizes (4096+).
-        let min_elems = x / 4 * 3;
+        // Size of an element plus its control byte.
+        let rough_bucket_size = core::mem::size_of::<(usize, ())>() + 1;
+
+        // Accounting for some misc. padding that's likely in the allocation
+        // due to rounding to group width, etc.
+        let overhead = 3 * core::mem::size_of::<usize>();
+        let num_buckets = (alloc.page_size - overhead) / rough_bucket_size;
+        // Buckets are always powers of 2.
+        let min_elems = prev_pow2(num_buckets);
+        // Real load-factor is 7/8, but this is a lower estimation, so 1/2.
+        let min_capacity = min_elems >> 1;
         let capacity = map.capacity();
-        assert!(capacity > min_elems, "failed: {capacity} > {min_elems}");
+        assert!(
+            capacity >= min_capacity,
+            "failed: {capacity} >= {min_capacity}"
+        );
 
         // Fill it up.
         for i in 0..capacity {
