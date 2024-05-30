@@ -40,13 +40,6 @@ impl Group {
         &ALIGNED_BYTES.bytes
     }
 
-    /// Loads a group of bytes starting at the given address.
-    #[inline]
-    #[allow(clippy::cast_ptr_alignment)] // unaligned load
-    pub(crate) unsafe fn load(ptr: *const u8) -> Self {
-        Group(neon::vld1_u8(ptr))
-    }
-
     /// Loads a group of bytes starting at the given address, which must be
     /// aligned to `mem::align_of::<Group>()`.
     #[inline]
