@@ -8,7 +8,7 @@ use core::hash::{BuildHasher, Hash};
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem;
-use core::ops::Index;
+use core::ops::{Index, IndexMut};
 
 /// Default hasher for `HashMap`.
 #[cfg(feature = "ahash")]
@@ -2254,6 +2254,37 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     fn index(&self, key: &Q) -> &V {
         self.get(key).expect("no entry found for key")
+    }
+}
+
+impl<K, Q: ?Sized, V, S, A> IndexMut<&Q> for HashMap<K, V, S, A>
+where
+    K: Eq + Hash,
+    Q: Hash + Equivalent<K>,
+    S: BuildHasher,
+    A: Allocator,
+{
+    /// Returns a mutable reference to the value corresponding to the supplied key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is not present in the `HashMap`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map: HashMap<_, _> = [("a", "One".to_owned()), ("b", "Two".to_owned())].into();
+    ///
+    /// map[&"a"].make_ascii_uppercase();
+    ///
+    /// assert_eq!(map.get("a"), Some(&"ONE".to_owned()));
+    /// assert_eq!(map.get("b"), Some(&"Two".to_owned()));
+    /// ```
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn index_mut(&mut self, key: &Q) -> &mut V {
+        self.get_mut(key).expect("no entry found for key")
     }
 }
 
@@ -7476,6 +7507,19 @@ mod test_map {
 
         #[allow(clippy::no_effect)] // false positive lint
         map[&4];
+    }
+
+    #[test]
+    fn test_index_mut() {
+        let mut map = HashMap::new();
+
+        map.insert(5, 9);
+        map.insert(3, 17);
+        map.insert(9, -17);
+
+        map[&3] *= 5;
+
+        assert_eq!(map.get(&3), Some(&85));
     }
 
     #[test]
