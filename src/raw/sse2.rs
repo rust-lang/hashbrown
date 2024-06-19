@@ -1,5 +1,5 @@
 use super::bitmask::BitMask;
-use super::EMPTY;
+use super::{DELETED, EMPTY};
 use core::mem;
 use core::num::NonZeroU16;
 
@@ -102,6 +102,9 @@ impl Group {
     /// `EMPTY` or `DELETED`.
     #[inline]
     pub(crate) fn match_empty_or_deleted(self) -> BitMask {
+        debug_assert_eq!(127, EMPTY);
+        debug_assert_eq!(126, DELETED);
+
         #[allow(
             // byte: i32 as u16
             //   note: _mm_movemask_epi8 returns a 16-bit mask in a i32, the
@@ -110,15 +113,30 @@ impl Group {
             clippy::cast_possible_truncation
         )]
         unsafe {
-            // A byte is EMPTY or DELETED iff the high bit is set
-            BitMask(x86::_mm_movemask_epi8(self.0) as u16)
+            // A byte is EMPTY or DELETED iff it is greater than or equal to DELETED.
+            let is_special = x86::_mm_cmpgt_epi8(self.0, x86::_mm_set1_epi8(DELETED as i8 - 1));
+            BitMask(x86::_mm_movemask_epi8(is_special) as u16)
         }
     }
 
     /// Returns a `BitMask` indicating all bytes in the group which are full.
     #[inline]
     pub(crate) fn match_full(&self) -> BitMask {
-        self.match_empty_or_deleted().invert()
+        debug_assert_eq!(127, EMPTY);
+        debug_assert_eq!(126, DELETED);
+
+        #[allow(
+            // byte: i32 as u16
+            //   note: _mm_movemask_epi8 returns a 16-bit mask in a i32, the
+            //   upper 16-bits of the i32 are zeroed:
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation
+        )]
+        unsafe {
+            // A byte is full iff it is strictly less than DELETED.
+            let is_full = x86::_mm_cmplt_epi8(self.0, x86::_mm_set1_epi8(DELETED as i8));
+            BitMask(x86::_mm_movemask_epi8(is_full) as u16)
+        }
     }
 
     /// Performs the following transformation on all bytes in the group:
@@ -127,22 +145,20 @@ impl Group {
     /// - `FULL => DELETED`
     #[inline]
     pub(crate) fn convert_special_to_empty_and_full_to_deleted(self) -> Self {
-        // Map high_bit = 1 (EMPTY or DELETED) to 1111_1111
-        // and high_bit = 0 (FULL) to 1000_0000
-        //
-        // Here's this logic expanded to concrete values:
-        //   let special = 0 > byte = 1111_1111 (true) or 0000_0000 (false)
-        //   1111_1111 | 1000_0000 = 1111_1111
-        //   0000_0000 | 1000_0000 = 1000_0000
-        #[allow(
-            clippy::cast_possible_wrap, // byte: 0x80_u8 as i8
-        )]
+        debug_assert_eq!(127, EMPTY);
+        debug_assert_eq!(126, DELETED);
+
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         unsafe {
-            let zero = x86::_mm_setzero_si128();
-            let special = x86::_mm_cmpgt_epi8(zero, self.0);
+            let empty = x86::_mm_set1_epi8(EMPTY as i8);
+            let deleted = x86::_mm_set1_epi8(DELETED as i8);
+
+            let is_full = x86::_mm_cmplt_epi8(self.0, deleted);
+            let is_special = x86::_mm_cmpeq_epi8(is_full, x86::_mm_set1_epi8(0));
+
             Group(x86::_mm_or_si128(
-                special,
-                x86::_mm_set1_epi8(0x80_u8 as i8),
+                x86::_mm_and_si128(is_full, deleted),
+                x86::_mm_and_si128(is_special, empty),
             ))
         }
     }
