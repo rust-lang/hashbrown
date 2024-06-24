@@ -195,8 +195,8 @@ impl ProbeSeq {
 fn capacity_to_buckets(cap: usize, table_layout: TableLayout) -> Option<usize> {
     debug_assert_ne!(cap, 0);
 
-    // Consider a small layout like TableLayout { size: 1, ctrl_align: 16 } on
-    // a platform with Group::WIDTH of 16 (like x86_64 with SSE2). For small
+    // Consider a small TableLayout like { size: 1, ctrl_align: 16 } on a
+    // platform with Group::WIDTH of 16 (like x86_64 with SSE2). For small
     // bucket sizes, this ends up wasting quite a few bytes just to pad to the
     // relatively larger ctrl_align:
     //
@@ -208,16 +208,20 @@ fn capacity_to_buckets(cap: usize, table_layout: TableLayout) -> Option<usize> {
     // |       28 |      32 |              80 |            3.3 |
     //
     // In general, buckets * table_layout.size >= table_layout.ctrl_align must
-    // be true to avoid these edges.
-    let min_buckets = table_layout.ctrl_align / table_layout.size.max(1);
+    // be true to avoid these edges. This is implemented by adjusting the
+    // minimum capacity upwards for small items. This code only needs to handle
+    // ctrl_align which are less than or equal to Group::WIDTH, because valid
+    // layout sizes are always a multiple of the alignment, so anything with
+    // alignment over the Group::WIDTH won't hit this edge case.
+    let cap = cap.max(match (Group::WIDTH, table_layout.size) {
+        (16, 0..=1) => 14,
+        (16, 2..=3) => 7,
+        (8, 0..=1) => 7,
+        _ => 3,
+    });
 
-    // This `min_buckets * 7 / 8` is the reverse of the `cap * 8 / 7` below.
-    let min_cap = match min_buckets.checked_mul(7) {
-        Some(c) => cap.max(c / 8),
-        None => cap,
-    };
-
-    let cap = cap.max(min_cap);
+    // For small tables we require at least 1 empty bucket so that lookups are
+    // guaranteed to terminate if an element doesn't exist in the table.
     if cap < 8 {
         // We don't bother with a table size of 2 buckets since that can only
         // hold a single element. Instead, skip directly to a 4 bucket table
