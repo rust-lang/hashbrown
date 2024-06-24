@@ -220,10 +220,10 @@ fn capacity_to_buckets(cap: usize, table_layout: TableLayout) -> Option<usize> {
         _ => 3,
     });
 
-    // For small tables we require at least 1 empty bucket so that lookups are
+    // For small tables, require at least 1 empty bucket so that lookups are
     // guaranteed to terminate if an element doesn't exist in the table.
     if cap < 8 {
-        // We don't bother with a table size of 2 buckets since that can only
+        // Don't bother with a table size of 2 buckets since that can only
         // hold a single element. Instead, skip directly to a 4 bucket table
         // which can hold 3 elements.
         return Some(if cap < 4 { 4 } else { 8 });
