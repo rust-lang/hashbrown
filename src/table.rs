@@ -1931,6 +1931,17 @@ impl<T> ExactSizeIterator for IterMut<'_, T> {
 
 impl<T> FusedIterator for IterMut<'_, T> {}
 
+// FIXME(#26925) Remove in favor of `#[derive(Clone)]`
+impl<'a, T> Clone for IterMut<'a, T> {
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn clone(&self) -> IterMut<'a, T> {
+        IterMut {
+            inner: self.inner.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
 impl<T: fmt::Debug> fmt::Debug for IterMut<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
