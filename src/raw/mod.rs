@@ -4280,6 +4280,7 @@ impl ExactSizeIterator for FullBucketsIndices {}
 impl FusedIterator for FullBucketsIndices {}
 
 /// Iterator which consumes a table and returns elements.
+#[derive(Clone)]
 pub struct RawIntoIter<T, A: Allocator = Global> {
     iter: RawIter<T>,
     allocation: Option<(NonNull<u8>, Layout, A)>,

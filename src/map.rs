@@ -2399,6 +2399,7 @@ impl<K, V> IterMut<'_, K, V> {
 /// assert_eq!(iter.next(), None);
 /// assert_eq!(iter.next(), None);
 /// ```
+#[derive(Clone)]
 pub struct IntoIter<K, V, A: Allocator = Global> {
     inner: RawIntoIter<(K, V), A>,
 }
@@ -2443,6 +2444,7 @@ impl<K, V, A: Allocator> IntoIter<K, V, A> {
 /// assert_eq!(keys.next(), None);
 /// assert_eq!(keys.next(), None);
 /// ```
+#[derive(Clone)]
 pub struct IntoKeys<K, V, A: Allocator = Global> {
     inner: IntoIter<K, V, A>,
 }
@@ -2521,6 +2523,7 @@ impl<K: Debug, V: Debug, A: Allocator> fmt::Debug for IntoKeys<K, V, A> {
 /// assert_eq!(values.next(), None);
 /// assert_eq!(values.next(), None);
 /// ```
+#[derive(Clone)]
 pub struct IntoValues<K, V, A: Allocator = Global> {
     inner: IntoIter<K, V, A>,
 }

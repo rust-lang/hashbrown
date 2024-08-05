@@ -1701,6 +1701,7 @@ pub struct Iter<'a, K> {
 ///
 /// [`HashSet`]: struct.HashSet.html
 /// [`into_iter`]: struct.HashSet.html#method.into_iter
+#[derive(Clone)]
 pub struct IntoIter<K, A: Allocator = Global> {
     iter: map::IntoIter<K, (), A>,
 }

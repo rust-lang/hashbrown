@@ -1835,6 +1835,15 @@ pub struct Iter<'a, T> {
     marker: PhantomData<&'a T>,
 }
 
+impl<'a, T> Clone for Iter<'a, T> {
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn clone(&self) -> Self {
+        Iter {
+            inner: self.inner.clone(),
+            marker: PhantomData,
+        }
+    }
+}
 impl<'a, T> Default for Iter<'a, T> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn default() -> Self {
@@ -1842,6 +1851,11 @@ impl<'a, T> Default for Iter<'a, T> {
             inner: Default::default(),
             marker: PhantomData,
         }
+    }
+}
+impl<'a, T: fmt::Debug> fmt::Debug for Iter<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.clone()).finish()
     }
 }
 impl<'a, T> Iterator for Iter<'a, T> {
@@ -1889,6 +1903,16 @@ pub struct IterMut<'a, T> {
     inner: RawIter<T>,
     marker: PhantomData<&'a mut T>,
 }
+impl<'a, T> IterMut<'a, T> {
+    /// Borrows as a non-mutable iterator.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.clone(),
+            marker: PhantomData,
+        }
+    }
+}
 
 impl<'a, T> Default for IterMut<'a, T> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -1897,6 +1921,11 @@ impl<'a, T> Default for IterMut<'a, T> {
             inner: Default::default(),
             marker: PhantomData,
         }
+    }
+}
+impl<'a, T: fmt::Debug> fmt::Debug for IterMut<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 impl<'a, T> Iterator for IterMut<'a, T> {
@@ -1942,11 +1971,31 @@ impl<T> FusedIterator for IterMut<'_, T> {}
 /// [`into_iter`]: struct.HashTable.html#method.into_iter
 /// [`HashTable`]: struct.HashTable.html
 /// [`IntoIterator`]: https://doc.rust-lang.org/core/iter/trait.IntoIterator.html
+#[derive(Clone)]
 pub struct IntoIter<T, A = Global>
 where
     A: Allocator,
 {
     inner: RawIntoIter<T, A>,
+}
+impl<T, A: Allocator> IntoIter<T, A> {
+    /// Borrows the remaining elements as an iterator.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.iter(),
+            marker: PhantomData,
+        }
+    }
+
+    /// Borrows the remaining elements as a mutable iterator.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        IterMut {
+            inner: self.inner.iter(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<T, A: Allocator> Default for IntoIter<T, A> {
@@ -1955,6 +2004,11 @@ impl<T, A: Allocator> Default for IntoIter<T, A> {
         IntoIter {
             inner: Default::default(),
         }
+    }
+}
+impl<T: fmt::Debug, A: Allocator> fmt::Debug for IntoIter<T, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 impl<T, A> Iterator for IntoIter<T, A>
