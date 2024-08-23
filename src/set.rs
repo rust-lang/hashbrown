@@ -913,13 +913,7 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_or_insert(&mut self, value: T) -> &T {
-        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
-        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
-        self.map
-            .raw_entry_mut()
-            .from_key(&value)
-            .or_insert(value, ())
-            .0
+        self.get_or_insert_equivalent_explicit::<T, T, _>(value, core::convert::identity)
     }
 
     /// Inserts an owned copy of the given `value` into the set if it is not
@@ -945,13 +939,56 @@ where
     where
         Q: Hash + Equivalent<T> + ToOwned<Owned = T> + ?Sized,
     {
+        self.get_or_insert_equivalent_explicit::<Q, &Q, _>(value, ToOwned::to_owned)
+    }
+
+    /// Same as `get_or_insert_equivalent`, but allows explicitly specifying the common
+    /// type for some cases where CommonEquivalent is not implemented for your type.
+    pub fn get_or_insert_equivalent_explicit<Common, Q, F>(&mut self, value: Q, f: F) -> &T
+    where
+        Q: core::borrow::Borrow<Common>,
+        Common: Equivalent<T> + Hash + ?Sized,
+        F: FnOnce(Q) -> T,
+    {
         // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
         // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
         self.map
             .raw_entry_mut()
-            .from_key(value)
-            .or_insert_with(|| (value.to_owned(), ()))
+            .from_key(value.borrow())
+            .or_insert_with(move || (f(value), ()))
             .0
+    }
+
+    /// This method allows for more efficient insertion of related, but not the same types
+    /// (like `String` and `Rc<str>`), without needles re-allocation if the element is already inside.
+    /// It also applies to types like `Vec<T>`, `Box<[T]>` or `Cow<'a, [T]>`.
+    ///
+    /// # Examples
+    /// ```
+    /// use hashbrown::HashSet;
+    /// use std::rc::Rc;
+    ///
+    /// #[derive(PartialEq, Eq, Hash)]
+    /// struct Nonclone;
+    ///
+    /// let v1: Vec<Nonclone> = vec![Nonclone, Nonclone];
+    /// let v2: Vec<Nonclone> = vec![Nonclone, Nonclone];
+    /// let mut set: HashSet<Rc<[Nonclone]>> = HashSet::new();
+    /// set.get_or_insert_equivalent(v1, Into::into);
+    /// set.get_or_insert_equivalent(v2, |_| panic!("it should be already inserted"));
+    /// assert_eq!(set.len(), 1);
+    ///
+    /// ```
+    pub fn get_or_insert_equivalent<Q, F>(&mut self, value: Q, f: F) -> &T
+    where
+        T: core::ops::Deref,
+        Q: core::borrow::Borrow<<T as core::ops::Deref>::Target>,
+        <T as core::ops::Deref>::Target: Eq + Hash + Equivalent<T>,
+        F: FnOnce(Q) -> T,
+    {
+        // Technically, rustc can infer these types (which is amazing!), however,
+        // lets keep it explicit, so that it doesn't need to.
+        self.get_or_insert_equivalent_explicit::<<T as core::ops::Deref>::Target, Q, F>(value, f)
     }
 
     /// Inserts a value computed from `f` into the set if the given `value` is
@@ -978,13 +1015,7 @@ where
         Q: Hash + Equivalent<T> + ?Sized,
         F: FnOnce(&Q) -> T,
     {
-        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
-        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
-        self.map
-            .raw_entry_mut()
-            .from_key(value)
-            .or_insert_with(|| (f(value), ()))
-            .0
+        self.get_or_insert_equivalent_explicit::<Q, &Q, F>(value, f)
     }
 
     /// Gets the given value's corresponding entry in the set for in-place manipulation.
