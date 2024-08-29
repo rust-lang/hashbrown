@@ -1,3 +1,6 @@
+// FIXME: When not public, a lot is dead because `HashSet` only uses a fraction of the API
+#![cfg_attr(not(feature = "raw-entry"), allow(dead_code))]
+
 use crate::hash_map::{equivalent, make_hash, make_hasher};
 use crate::raw::{Allocator, Bucket, Global, RawTable};
 use crate::{Equivalent, HashMap};
@@ -103,8 +106,16 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// assert_eq!(map.get(&"d"), None);
     /// assert_eq!(map.len(), 2);
     /// ```
+    #[cfg(feature = "raw-entry")]
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn raw_entry_mut(&mut self) -> RawEntryBuilderMut<'_, K, V, S, A> {
+        RawEntryBuilderMut { map: self }
+    }
+
+    // FIXME: this is still used in the `HashSet` implementation
+    #[cfg(not(feature = "raw-entry"))]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub(crate) fn raw_entry_mut(&mut self) -> RawEntryBuilderMut<'_, K, V, S, A> {
         RawEntryBuilderMut { map: self }
     }
 
@@ -153,6 +164,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
+    #[cfg(feature = "raw-entry")]
     pub fn raw_entry(&self) -> RawEntryBuilder<'_, K, V, S, A> {
         RawEntryBuilder { map: self }
     }

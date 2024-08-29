@@ -1599,10 +1599,10 @@ where
         for item in rhs {
             let entry = self.map.raw_entry_mut().from_key(item);
             match entry {
-                map::RawEntryMut::Occupied(e) => {
+                crate::raw_entry::RawEntryMut::Occupied(e) => {
                     e.remove();
                 }
-                map::RawEntryMut::Vacant(e) => {
+                crate::raw_entry::RawEntryMut::Vacant(e) => {
                     e.insert(item.to_owned(), ());
                 }
             };
