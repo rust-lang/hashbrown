@@ -46,6 +46,7 @@ serde_test = "1.0"
 doc-comment = "0.3.1"
 bumpalo = { version = "3.13.0", features = ["allocator-api2"] }
 rkyv = { version = "0.7.42", features = ["validation"] }
+gxhash = "3.0.0"
 
 [features]
 default = ["default-hasher", "inline-more", "allocator-api2", "equivalent", "raw-entry"]
