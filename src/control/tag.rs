@@ -30,6 +30,12 @@ impl Tag {
         self.0 & 0x01 != 0
     }
 
+    /// Checks whether a control value is EMPTY.
+    #[inline]
+    pub(crate) const fn is_empty(self) -> bool {
+        self.is_special() && self.special_is_empty()
+    }
+
     /// Creates a control tag representing a full bucket with the given hash.
     #[inline]
     #[allow(clippy::cast_possible_truncation)]

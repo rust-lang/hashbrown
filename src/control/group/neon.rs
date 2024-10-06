@@ -21,20 +21,23 @@ impl Group {
     /// Number of bytes in the group.
     pub(crate) const WIDTH: usize = mem::size_of::<Self>();
 
+    /// Double the group width; size of [`Group::static_empty`].
+    pub(crate) const DOUBLE_WIDTH: usize = Group::WIDTH * 2;
+
     /// Returns a full group of empty tags, suitable for use as the initial
     /// value for an empty hash table.
     ///
     /// This is guaranteed to be aligned to the group size.
     #[inline]
-    pub(crate) const fn static_empty() -> &'static [Tag; Group::WIDTH] {
+    pub(crate) const fn static_empty() -> &'static [Tag; Group::DOUBLE_WIDTH] {
         #[repr(C)]
         struct AlignedTags {
             _align: [Group; 0],
-            tags: [Tag; Group::WIDTH],
+            tags: [Tag; Group::DOUBLE_WIDTH],
         }
         const ALIGNED_TAGS: AlignedTags = AlignedTags {
             _align: [],
-            tags: [Tag::EMPTY; Group::WIDTH],
+            tags: [Tag::EMPTY; Group::DOUBLE_WIDTH],
         };
         &ALIGNED_TAGS.tags
     }
