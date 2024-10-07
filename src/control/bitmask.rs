@@ -1,4 +1,4 @@
-use super::imp::{
+use super::group::{
     BitMaskWord, NonZeroBitMaskWord, BITMASK_ITER_MASK, BITMASK_MASK, BITMASK_STRIDE,
 };
 
