@@ -197,14 +197,40 @@ impl ProbeSeq {
 // Workaround for emscripten bug emscripten-core/emscripten-fastcomp#258
 #[cfg_attr(target_os = "emscripten", inline(never))]
 #[cfg_attr(not(target_os = "emscripten"), inline)]
-fn capacity_to_buckets(cap: usize) -> Option<usize> {
+fn capacity_to_buckets(cap: usize, table_layout: TableLayout) -> Option<usize> {
     debug_assert_ne!(cap, 0);
+
+    // todo: what happens with ZSTs?
+    // Consider a small layout like TableLayout { size: 1, ctrl_align: 16 } on
+    // a platform with Group::WIDTH of 16 (like x86_64 with SSE2). For small
+    // bucket sizes, this ends up wasting quite a few bytes just to pad to the
+    // relatively larger ctrl_align:
+    //
+    // | capacity | buckets | bytes allocated | bytes per item |
+    // | -------- | ------- | --------------- | -------------- |
+    // |        3 |       4 |              36 | (Yikes!)  12.0 |
+    // |        7 |       8 |              40 | (Poor)     5.7 |
+    // |       14 |      16 |              48 |            3.4 |
+    // |       28 |      32 |              80 |            3.3 |
+    //
+    // The ratio of ctrl_align / size is used to set a minimum buckets so
+    // that padding to the alignment isn't dominating the total allocation.
+    let cap = {
+        let q = table_layout.ctrl_align / table_layout.size.max(1);
+        match q.checked_mul(7) {
+            None => cap,
+            Some(x) => {
+                let adjusted = x / 8;
+                adjusted.max(cap)
+            }
+        }
+    };
 
     // For small tables we require at least 1 empty bucket so that lookups are
     // guaranteed to terminate if an element doesn't exist in the table.
     if cap < 8 {
         // We don't bother with a table size of 2 buckets since that can only
-        // hold a single element. Instead we skip directly to a 4 bucket table
+        // hold a single element. Instead, skip directly to a 4 bucket table
         // which can hold 3 elements.
         return Some(if cap < 4 { 4 } else { 8 });
     }
@@ -946,7 +972,7 @@ impl<T, A: Allocator> RawTable<T, A> {
         // elements. If the calculation overflows then the requested bucket
         // count must be larger than what we have right and nothing needs to be
         // done.
-        let min_buckets = match capacity_to_buckets(min_size) {
+        let min_buckets = match capacity_to_buckets(min_size, Self::TABLE_LAYOUT) {
             Some(buckets) => buckets,
             None => return,
         };
@@ -1077,14 +1103,8 @@ impl<T, A: Allocator> RawTable<T, A> {
     /// * If `self.table.items != 0`, calling of this function with `capacity`
     ///   equal to 0 (`capacity == 0`) results in [`undefined behavior`].
     ///
-    /// * If `capacity_to_buckets(capacity) < Group::WIDTH` and
-    ///   `self.table.items > capacity_to_buckets(capacity)`
-    ///   calling this function results in [`undefined behavior`].
-    ///
-    /// * If `capacity_to_buckets(capacity) >= Group::WIDTH` and
-    ///   `self.table.items > capacity_to_buckets(capacity)`
-    ///   calling this function are never return (will go into an
-    ///   infinite loop).
+    /// * If `self.table.items > capacity_to_buckets(capacity, Self::TABLE_LAYOUT)`
+    ///   calling this function are never return (will loop infinitely).
     ///
     /// See [`RawTableInner::find_insert_slot`] for more information.
     ///
@@ -1508,6 +1528,40 @@ impl RawTableInner {
     }
 }
 
+/// Find the previous power of 2. If it's already a power of 2, it's unchanged.
+/// Passing zero is undefined behavior.
+pub(crate) fn prev_pow2(z: usize) -> usize {
+    let shift = mem::size_of::<usize>() * 8 - 1;
+    1 << (shift - (z.leading_zeros() as usize))
+}
+
+fn maximum_buckets_in(
+    allocation_size: usize,
+    table_layout: TableLayout,
+    group_width: usize,
+) -> usize {
+    // Given an equation like:
+    //   z >= x * y + x + g
+    // x can be maximized by doing:
+    //   x = (z - g) / (y + 1)
+    // If you squint:
+    //   x is the number of buckets
+    //   y is the table_layout.size
+    //   z is the size of the allocation
+    //   g is the group width
+    // But this is ignoring the padding needed for ctrl_align.
+    // If we remember these restrictions:
+    //   x is always a power of 2
+    //   Layout size for T must always be a multiple of T
+    // Then the alignment can be ignored if we add the constraint:
+    //   x * y >= table_layout.ctrl_align
+    // This is taken care of by `capacity_to_buckets`.
+    let numerator = allocation_size - group_width;
+    let denominator = table_layout.size + 1; // todo: ZSTs?
+    let quotient = numerator / denominator;
+    prev_pow2(quotient)
+}
+
 impl RawTableInner {
     /// Allocates a new [`RawTableInner`] with the given number of buckets.
     /// The control bytes and buckets are left uninitialized.
@@ -1525,7 +1579,7 @@ impl RawTableInner {
     unsafe fn new_uninitialized<A>(
         alloc: &A,
         table_layout: TableLayout,
-        buckets: usize,
+        mut buckets: usize,
         fallibility: Fallibility,
     ) -> Result<Self, TryReserveError>
     where
@@ -1534,13 +1588,29 @@ impl RawTableInner {
         debug_assert!(buckets.is_power_of_two());
 
         // Avoid `Option::ok_or_else` because it bloats LLVM IR.
-        let (layout, ctrl_offset) = match table_layout.calculate_layout_for(buckets) {
+        let (layout, mut ctrl_offset) = match table_layout.calculate_layout_for(buckets) {
             Some(lco) => lco,
             None => return Err(fallibility.capacity_overflow()),
         };
 
         let ptr: NonNull<u8> = match do_alloc(alloc, layout) {
-            Ok(block) => block.cast(),
+            Ok(block) => {
+                // Utilize over-sized allocations.
+                let x = maximum_buckets_in(block.len(), table_layout, Group::WIDTH);
+                debug_assert!(x >= buckets);
+                // Calculate the new ctrl_offset.
+                let (_oversized_layout, oversized_ctrl_offset) =
+                    match table_layout.calculate_layout_for(x) {
+                        Some(lco) => lco,
+                        None => unsafe { hint::unreachable_unchecked() },
+                    };
+                debug_assert!(_oversized_layout.size() <= block.len());
+                debug_assert!(oversized_ctrl_offset >= ctrl_offset);
+                ctrl_offset = oversized_ctrl_offset;
+                buckets = x;
+
+                block.cast()
+            }
             Err(_) => return Err(fallibility.alloc_err(layout)),
         };
 
@@ -1574,8 +1644,8 @@ impl RawTableInner {
             // SAFETY: We checked that we could successfully allocate the new table, and then
             // initialized all control bytes with the constant `Tag::EMPTY` byte.
             unsafe {
-                let buckets =
-                    capacity_to_buckets(capacity).ok_or_else(|| fallibility.capacity_overflow())?;
+                let buckets = capacity_to_buckets(capacity, table_layout)
+                    .ok_or_else(|| fallibility.capacity_overflow())?;
 
                 let result = Self::new_uninitialized(alloc, table_layout, buckets, fallibility)?;
                 // SAFETY: We checked that the table is allocated and therefore the table already has
@@ -4229,6 +4299,43 @@ impl<T, A: Allocator> RawExtractIf<'_, T, A> {
 #[cfg(test)]
 mod test_map {
     use super::*;
+
+    #[test]
+    fn test_prev_pow2() {
+        // Skip 0, not defined for that input.
+        let mut pow2: usize = 1;
+        while (pow2 << 1) > 0 {
+            let next_pow2 = pow2 << 1;
+            assert_eq!(pow2, prev_pow2(pow2));
+            // Need to skip 2, because it's also a power of 2, so it doesn't
+            // return the previous power of 2.
+            if next_pow2 > 2 {
+                assert_eq!(pow2, prev_pow2(pow2 + 1));
+                assert_eq!(pow2, prev_pow2(next_pow2 - 1));
+            }
+            pow2 = next_pow2;
+        }
+    }
+
+    #[test]
+    fn test_minimum_capacity_for_small_types() {
+        #[track_caller]
+        fn test_t<T>() {
+            let raw_table: RawTable<T> = RawTable::with_capacity(1);
+            let actual_buckets = raw_table.buckets();
+            let min_buckets = Group::WIDTH / core::mem::size_of::<T>();
+            assert!(
+                actual_buckets >= min_buckets,
+                "expected at least {min_buckets} buckets, got {actual_buckets} buckets"
+            );
+        }
+
+        test_t::<u8>();
+
+        // This is only "small" for some platforms, like x86_64 with SSE2, but
+        // there's no harm in running it on other platforms.
+        test_t::<u16>();
+    }
 
     fn rehash_in_place<T>(table: &mut RawTable<T>, hasher: impl Fn(&T) -> u64) {
         unsafe {
