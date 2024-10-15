@@ -1,5 +1,4 @@
-use super::bitmask::BitMask;
-use super::Tag;
+use super::super::{BitMask, Tag};
 use core::{mem, ptr};
 
 // Use the native word size as the group size. Using a 64-bit group size on
@@ -51,20 +50,23 @@ impl Group {
     /// Number of bytes in the group.
     pub(crate) const WIDTH: usize = mem::size_of::<Self>();
 
+    /// Double the group width; size of [`Group::static_empty`].
+    pub(crate) const DOUBLE_WIDTH: usize = Group::WIDTH * 2;
+
     /// Returns a full group of empty tags, suitable for use as the initial
     /// value for an empty hash table.
     ///
     /// This is guaranteed to be aligned to the group size.
     #[inline]
-    pub(crate) const fn static_empty() -> &'static [Tag; Group::WIDTH] {
+    pub(crate) const fn static_empty() -> &'static [Tag; Group::DOUBLE_WIDTH] {
         #[repr(C)]
         struct AlignedTags {
             _align: [Group; 0],
-            tags: [Tag; Group::WIDTH],
+            tags: [Tag; Group::DOUBLE_WIDTH],
         }
         const ALIGNED_TAGS: AlignedTags = AlignedTags {
             _align: [],
-            tags: [Tag::EMPTY; Group::WIDTH],
+            tags: [Tag::EMPTY; Group::DOUBLE_WIDTH],
         };
         &ALIGNED_TAGS.tags
     }
@@ -81,8 +83,7 @@ impl Group {
     #[inline]
     #[allow(clippy::cast_ptr_alignment)]
     pub(crate) unsafe fn load_aligned(ptr: *const Tag) -> Self {
-        // FIXME: use align_offset once it stabilizes
-        debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
+        debug_assert_eq!(ptr.align_offset(mem::align_of::<Self>()), 0);
         Group(ptr::read(ptr.cast()))
     }
 
@@ -91,8 +92,7 @@ impl Group {
     #[inline]
     #[allow(clippy::cast_ptr_alignment)]
     pub(crate) unsafe fn store_aligned(self, ptr: *mut Tag) {
-        // FIXME: use align_offset once it stabilizes
-        debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
+        debug_assert_eq!(ptr.align_offset(mem::align_of::<Self>()), 0);
         ptr::write(ptr.cast(), self.0);
     }
 

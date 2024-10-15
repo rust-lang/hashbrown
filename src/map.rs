@@ -1803,7 +1803,7 @@ where
         &mut self,
         hash: u64,
         key: &Q,
-    ) -> Result<Bucket<(K, V)>, crate::raw::InsertSlot>
+    ) -> Result<Bucket<(K, V)>, usize>
     where
         Q: Equivalent<K> + ?Sized,
     {
