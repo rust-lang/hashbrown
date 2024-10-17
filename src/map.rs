@@ -2984,10 +2984,10 @@ where
 /// }
 /// assert!(map["b"] == 20 && map.len() == 2);
 /// ```
-pub struct VacantEntryRef<'a, 'b, K, Q: ?Sized, V, S, A: Allocator = Global> {
+pub struct VacantEntryRef<'map, 'key, K, Q: ?Sized, V, S, A: Allocator = Global> {
     hash: u64,
-    key: &'b Q,
-    table: &'a mut HashMap<K, V, S, A>,
+    key: &'key Q,
+    table: &'map mut HashMap<K, V, S, A>,
 }
 
 impl<K, Q, V, S, A> Debug for VacantEntryRef<'_, '_, K, Q, V, S, A>
@@ -4328,7 +4328,25 @@ impl<'a, 'b, K, Q: ?Sized, V: Default, S, A: Allocator> EntryRef<'a, 'b, K, Q, V
     }
 }
 
-impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'a, 'b, K, Q, V, S, A> {
+impl<'map, 'key, K, V, S, A: Allocator> VacantEntryRef<'map, 'key, K, K, V, S, A> {
+    /// insert, cloing the key
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn insert_clone(self, value: V) -> &'map mut V
+    where
+        K: Hash + Clone,
+        S: BuildHasher,
+    {
+        let table = &mut self.table.table;
+        let entry = table.insert_entry(
+            self.hash,
+            (self.key.clone(), value),
+            make_hasher::<_, V, S>(&self.table.hash_builder),
+        );
+        &mut entry.1
+    }
+}
+
+impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K, Q, V, S, A> {
     /// Gets a reference to the key that would be used when inserting a value
     /// through the `VacantEntryRef`.
     ///
@@ -4342,7 +4360,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'a, 'b, K, Q, V, S
     /// assert_eq!(map.entry_ref(key).key(), "poneyland");
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn key(&self) -> &'b Q {
+    pub fn key(&self) -> &'key Q {
         self.key
     }
 
@@ -4364,15 +4382,33 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'a, 'b, K, Q, V, S
     /// assert_eq!(map["poneyland"], 37);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn insert(self, value: V) -> &'a mut V
+    pub fn insert(self, value: V) -> &'map mut V
     where
-        K: Hash + From<&'b Q>,
+        K: Hash + From<&'key Q>,
         S: BuildHasher,
     {
         let table = &mut self.table.table;
         let entry = table.insert_entry(
             self.hash,
             (self.key.into(), value),
+            make_hasher::<_, V, S>(&self.table.hash_builder),
+        );
+        &mut entry.1
+    }
+
+    /// provide explicit key at insert-time instead of relying on there being effectively a from &K to K implementation and not working with cloneable values
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn insert_kv(self, key: K, value: V) -> &'map mut V
+    where
+        K: Hash,
+        for<'k> &'k K: PartialEq<&'key Q>,
+        S: BuildHasher,
+    {
+        let table = &mut self.table.table;
+        assert!(&key == self.key);
+        let entry = table.insert_entry(
+            self.hash,
+            (key, value),
             make_hasher::<_, V, S>(&self.table.hash_builder),
         );
         &mut entry.1
@@ -4395,9 +4431,9 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'a, 'b, K, Q, V, S
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn insert_entry(self, value: V) -> OccupiedEntry<'a, K, V, S, A>
+    pub fn insert_entry(self, value: V) -> OccupiedEntry<'map, K, V, S, A>
     where
-        K: Hash + From<&'b Q>,
+        K: Hash + From<&'key Q>,
         S: BuildHasher,
     {
         let elem = self.table.table.insert(
