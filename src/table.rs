@@ -870,6 +870,61 @@ where
         }
     }
 
+    /// Retains only the elements specified by the predicate until the predicate returns `None`.
+    ///
+    /// In other words, remove all elements `e` such that `f(&e)` returns `Ok(false)` until
+    /// `f(&e)` returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "nightly")]
+    /// # fn test() {
+    /// use hashbrown::{HashTable, DefaultHashBuilder};
+    /// use std::hash::BuildHasher;
+    ///
+    /// let mut table = HashTable::new();
+    /// let hasher = DefaultHashBuilder::default();
+    /// let hasher = |val: &_| {
+    ///     use core::hash::Hasher;
+    ///     let mut state = hasher.build_hasher();
+    ///     core::hash::Hash::hash(&val, &mut state);
+    ///     state.finish()
+    /// };
+    /// let mut removed = 0;
+    /// for x in 1..=8 {
+    ///     table.insert_unique(hasher(&x), x, hasher);
+    /// }
+    /// table.retain_with_break(|&mut v| if removed < 3 {
+    ///     if v % 2 == 0 {
+    ///         Some(true)
+    ///     } else {
+    ///         removed += 1;
+    ///         Some(false)
+    ///     }
+    /// } else {
+    ///     None
+    /// });
+    /// assert_eq!(table.len(), 5);
+    /// # }
+    /// # fn main() {
+    /// #     #[cfg(feature = "nightly")]
+    /// #     test()
+    /// # }
+    /// ```
+    pub fn retain_with_break(&mut self, mut f: impl FnMut(&mut T) -> Option<bool>) {
+        // Here we only use `iter` as a temporary, preventing use-after-free
+        unsafe {
+            for item in self.raw.iter() {
+                match f(item.as_mut()) {
+                    Some(false) => self.raw.erase(item),
+                    Some(true) => continue,
+                    None => break,
+                }
+            }
+        }
+    }
+
     /// Clears the set, returning all elements in an iterator.
     ///
     /// # Examples
@@ -2372,12 +2427,49 @@ impl<T, F, A: Allocator> FusedIterator for ExtractIf<'_, T, F, A> where F: FnMut
 
 #[cfg(test)]
 mod tests {
+    use crate::DefaultHashBuilder;
+
     use super::HashTable;
 
+    use core::hash::BuildHasher;
     #[test]
     fn test_allocation_info() {
         assert_eq!(HashTable::<()>::new().allocation_size(), 0);
         assert_eq!(HashTable::<u32>::new().allocation_size(), 0);
         assert!(HashTable::<u32>::with_capacity(1).allocation_size() > core::mem::size_of::<u32>());
+    }
+
+    #[test]
+    fn test_retain_with_break() {
+        let mut table = HashTable::new();
+        let hasher = DefaultHashBuilder::default();
+        let hasher = |val: &_| {
+            use core::hash::Hasher;
+            let mut state = hasher.build_hasher();
+            core::hash::Hash::hash(&val, &mut state);
+            state.finish()
+        };
+        for x in 0..100 {
+            table.insert_unique(hasher(&x), x, hasher);
+        }
+        // looping and removing any value > 50, but stop after 40 iterations
+        let mut removed = 0;
+        table.retain_with_break(|&mut v| {
+            if removed < 40 {
+                if v > 50 {
+                    removed += 1;
+                    Some(false)
+                } else {
+                    Some(true)
+                }
+            } else {
+                None
+            }
+        });
+        assert_eq!(table.len(), 60);
+        // check nothing up to 50 is removed
+        for v in 0..=50 {
+            assert_eq!(table.find(hasher(&v), |&val| val == v), Some(&v));
+        }
     }
 }

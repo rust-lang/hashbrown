@@ -372,6 +372,37 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         self.map.retain(|k, _| f(k));
     }
 
+    /// Retains only the elements specified by the predicate until the predicate returns `None`.
+    ///
+    /// In other words, remove all elements `e` such that `f(&e)` returns `Some(false)` until
+    /// `f(&e)` returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashSet;
+    ///
+    /// let xs = [1,2,3,4,5,6];
+    /// let mut set: HashSet<i32> = xs.into_iter().collect();
+    /// let mut count = 0;
+    /// set.retain_with_break(|&k| if count < 2 {
+    ///     if k % 2 == 0 {
+    ///         Some(true)
+    ///     } else {
+    ///         Some(false)
+    ///     }
+    /// } else {
+    ///     None
+    /// });
+    /// assert_eq!(set.len(), 3);
+    /// ```
+    pub fn retain_with_break<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&T) -> Option<bool>,
+    {
+        self.map.retain_with_break(|k, _| f(k));
+    }
+
     /// Drains elements which are true under the given predicate,
     /// and returns an iterator over the removed items.
     ///
@@ -2978,6 +3009,30 @@ mod test_set {
         assert!(set.contains(&2));
         assert!(set.contains(&4));
         assert!(set.contains(&6));
+    }
+
+    #[test]
+    fn test_retain_with_break() {
+        let mut set: HashSet<i32> = (0..100).collect();
+        // looping and removing any key > 50, but stop after 40 iterations
+        let mut removed = 0;
+        set.retain_with_break(|&k| {
+            if removed < 40 {
+                if k > 50 {
+                    removed += 1;
+                    Some(false)
+                } else {
+                    Some(true)
+                }
+            } else {
+                None
+            }
+        });
+        assert_eq!(set.len(), 60);
+        // check nothing up to 50 is removed
+        for k in 0..=50 {
+            assert!(set.contains(&k));
+        }
     }
 
     #[test]

@@ -929,6 +929,53 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
         }
     }
 
+    /// Retains only the elements specified by the predicate and breaks the iteration when
+    /// the predicate fails. Keeps the allocated memory for reuse.
+    ///
+    /// In other words, remove all pairs `(k, v)` such that `f(&k, &mut v)` returns `Some(false)` until
+    /// `f(&k, &mut v)` returns `None`
+    /// The elements are visited in unsorted (and unspecified) order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let mut map: HashMap<i32, i32> = (0..8).map(|x|(x, x*10)).collect();
+    /// assert_eq!(map.len(), 8);
+    /// let mut removed = 0;
+    /// map.retain_with_break(|&k, _| if removed < 3 {
+    ///     if k % 2 == 0 {
+    ///         Some(true)
+    ///     } else {
+    ///         removed += 1;
+    ///         Some(false)
+    ///     }
+    /// } else {
+    ///     None
+    /// });
+    ///
+    /// // We can see, that the number of elements inside map is changed and the
+    /// // length matches when we have aborted the retain with the return of `None`
+    /// assert_eq!(map.len(), 5);
+    /// ```
+    pub fn retain_with_break<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &mut V) -> Option<bool>,
+    {
+        // Here we only use `iter` as a temporary, preventing use-after-free
+        unsafe {
+            for item in self.table.iter() {
+                let &mut (ref key, ref mut value) = item.as_mut();
+                match f(key, value) {
+                    Some(false) => self.table.erase(item),
+                    Some(true) => continue,
+                    None => break,
+                }
+            }
+        }
+    }
+
     /// Drains elements which are true under the given predicate,
     /// and returns an iterator over the removed items.
     ///
@@ -5907,6 +5954,30 @@ mod test_map {
         assert_eq!(map[&2], 20);
         assert_eq!(map[&4], 40);
         assert_eq!(map[&6], 60);
+    }
+
+    #[test]
+    fn test_retain_with_break() {
+        let mut map: HashMap<i32, i32> = (0..100).map(|x| (x, x * 10)).collect();
+        // looping and removing any key > 50, but stop after 40 iterations
+        let mut removed = 0;
+        map.retain_with_break(|&k, _| {
+            if removed < 40 {
+                if k > 50 {
+                    removed += 1;
+                    Some(false)
+                } else {
+                    Some(true)
+                }
+            } else {
+                None
+            }
+        });
+        assert_eq!(map.len(), 60);
+        // check nothing up to 50 is removed
+        for k in 0..=50 {
+            assert_eq!(map[&k], k * 10);
+        }
     }
 
     #[test]
