@@ -372,35 +372,45 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         self.map.retain(|k, _| f(k));
     }
 
-    /// Retains only the elements specified by the predicate until the predicate returns `None`.
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
     ///
-    /// In other words, remove all elements `e` such that `f(&e)` returns `Some(false)` until
-    /// `f(&e)` returns `None`.
+    /// ### Element Fate
+    /// - Kept if `f(&e)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&e)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&e)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&e)`
+    ///   returns `ControlFlow::Break`
+    ///
+    /// The elements are visited in unsorted (and unspecified) order.
     ///
     /// # Examples
     ///
     /// ```
     /// use hashbrown::HashSet;
+    /// use core::ops::ControlFlow;
     ///
     /// let xs = [1,2,3,4,5,6];
     /// let mut set: HashSet<i32> = xs.into_iter().collect();
     /// let mut count = 0;
-    /// set.retain_with_break(|&k| if count < 2 {
+    /// set.filter(|&k| if count < 2 {
     ///     if k % 2 == 0 {
-    ///         Some(true)
+    ///         ControlFlow::Continue(true)
     ///     } else {
-    ///         Some(false)
+    ///         ControlFlow::Continue(false)
     ///     }
     /// } else {
-    ///     None
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
     /// });
     /// assert_eq!(set.len(), 3);
     /// ```
-    pub fn retain_with_break<F>(&mut self, mut f: F)
+    pub fn filter<F>(&mut self, mut f: F)
     where
-        F: FnMut(&T) -> Option<bool>,
+        F: FnMut(&T) -> core::ops::ControlFlow<bool, bool>,
     {
-        self.map.retain_with_break(|k, _| f(k));
+        self.map.filter(|k, _| f(k));
     }
 
     /// Drains elements which are true under the given predicate,
@@ -3012,20 +3022,20 @@ mod test_set {
     }
 
     #[test]
-    fn test_retain_with_break() {
+    fn test_filter() {
         let mut set: HashSet<i32> = (0..100).collect();
-        // looping and removing any key > 50, but stop after 40 iterations
+        // looping and removing any element > 50, but stop after 40 removals
         let mut removed = 0;
-        set.retain_with_break(|&k| {
-            if removed < 40 {
-                if k > 50 {
-                    removed += 1;
-                    Some(false)
+        set.filter(|&k| {
+            if k > 50 {
+                removed += 1;
+                if removed < 40 {
+                    core::ops::ControlFlow::Continue(false)
                 } else {
-                    Some(true)
+                    core::ops::ControlFlow::Break(false)
                 }
             } else {
-                None
+                core::ops::ControlFlow::Continue(true)
             }
         });
         assert_eq!(set.len(), 60);

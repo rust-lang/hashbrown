@@ -929,48 +929,64 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
         }
     }
 
-    /// Retains only the elements specified by the predicate and breaks the iteration when
-    /// the predicate fails. Keeps the allocated memory for reuse.
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
     ///
-    /// In other words, remove all pairs `(k, v)` such that `f(&k, &mut v)` returns `Some(false)` until
-    /// `f(&k, &mut v)` returns `None`
+    /// ### Element Fate
+    /// - Kept if `f(&k, &mut v)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&k, &mut v)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&k, &mut v)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&k, &mut v)`
+    ///   returns `ControlFlow::Break`
+    ///
     /// The elements are visited in unsorted (and unspecified) order.
     ///
     /// # Examples
     ///
     /// ```
     /// use hashbrown::HashMap;
+    /// use core::ops::ControlFlow;
     ///
     /// let mut map: HashMap<i32, i32> = (0..8).map(|x|(x, x*10)).collect();
     /// assert_eq!(map.len(), 8);
     /// let mut removed = 0;
-    /// map.retain_with_break(|&k, _| if removed < 3 {
+    /// map.filter(|&k, _| if removed < 3 {
     ///     if k % 2 == 0 {
-    ///         Some(true)
+    ///         ControlFlow::Continue(true)
     ///     } else {
     ///         removed += 1;
-    ///         Some(false)
+    ///         ControlFlow::Continue(false)
     ///     }
     /// } else {
-    ///     None
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
     /// });
     ///
     /// // We can see, that the number of elements inside map is changed and the
-    /// // length matches when we have aborted the retain with the return of `None`
+    /// // length matches when we have aborted the iteration with the return of `ControlFlow::Break`
     /// assert_eq!(map.len(), 5);
     /// ```
-    pub fn retain_with_break<F>(&mut self, mut f: F)
+    pub fn filter<F>(&mut self, mut f: F)
     where
-        F: FnMut(&K, &mut V) -> Option<bool>,
+        F: FnMut(&K, &mut V) -> core::ops::ControlFlow<bool, bool>,
     {
         // Here we only use `iter` as a temporary, preventing use-after-free
         unsafe {
             for item in self.table.iter() {
                 let &mut (ref key, ref mut value) = item.as_mut();
                 match f(key, value) {
-                    Some(false) => self.table.erase(item),
-                    Some(true) => continue,
-                    None => break,
+                    core::ops::ControlFlow::Continue(kept) => {
+                        if !kept {
+                            self.table.erase(item);
+                        }
+                    }
+                    core::ops::ControlFlow::Break(kept) => {
+                        if !kept {
+                            self.table.erase(item);
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -5957,20 +5973,21 @@ mod test_map {
     }
 
     #[test]
-    fn test_retain_with_break() {
+    fn test_filter() {
         let mut map: HashMap<i32, i32> = (0..100).map(|x| (x, x * 10)).collect();
-        // looping and removing any key > 50, but stop after 40 iterations
+        // looping and removing any key > 50, but stop after 40 removed
         let mut removed = 0;
-        map.retain_with_break(|&k, _| {
-            if removed < 40 {
-                if k > 50 {
-                    removed += 1;
-                    Some(false)
+        map.filter(|&k, _| {
+            if k > 50 {
+                removed += 1;
+                if removed < 40 {
+                    core::ops::ControlFlow::Continue(false)
                 } else {
-                    Some(true)
+                    // remove this item and break
+                    core::ops::ControlFlow::Break(false)
                 }
             } else {
-                None
+                core::ops::ControlFlow::Continue(true)
             }
         });
         assert_eq!(map.len(), 60);

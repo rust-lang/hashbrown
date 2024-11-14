@@ -870,10 +870,18 @@ where
         }
     }
 
-    /// Retains only the elements specified by the predicate until the predicate returns `None`.
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
     ///
-    /// In other words, remove all elements `e` such that `f(&e)` returns `Ok(false)` until
-    /// `f(&e)` returns `None`.
+    /// ### Element Fate
+    /// - Kept if `f(&e)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&e)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&e)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&e)`
+    ///   returns `ControlFlow::Break`
+    ///
+    /// The elements are visited in unsorted (and unspecified) order.
     ///
     /// # Examples
     ///
@@ -882,6 +890,7 @@ where
     /// # fn test() {
     /// use hashbrown::{HashTable, DefaultHashBuilder};
     /// use std::hash::BuildHasher;
+    /// use core::ops::ControlFlow;
     ///
     /// let mut table = HashTable::new();
     /// let hasher = DefaultHashBuilder::default();
@@ -895,15 +904,16 @@ where
     /// for x in 1..=8 {
     ///     table.insert_unique(hasher(&x), x, hasher);
     /// }
-    /// table.retain_with_break(|&mut v| if removed < 3 {
+    /// table.filter(|&mut v| if removed < 3 {
     ///     if v % 2 == 0 {
-    ///         Some(true)
+    ///         ControlFlow::Continue(true)
     ///     } else {
     ///         removed += 1;
-    ///         Some(false)
+    ///         ControlFlow::Continue(false)
     ///     }
     /// } else {
-    ///     None
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
     /// });
     /// assert_eq!(table.len(), 5);
     /// # }
@@ -912,14 +922,22 @@ where
     /// #     test()
     /// # }
     /// ```
-    pub fn retain_with_break(&mut self, mut f: impl FnMut(&mut T) -> Option<bool>) {
+    pub fn filter(&mut self, mut f: impl FnMut(&mut T) -> core::ops::ControlFlow<bool, bool>) {
         // Here we only use `iter` as a temporary, preventing use-after-free
         unsafe {
             for item in self.raw.iter() {
                 match f(item.as_mut()) {
-                    Some(false) => self.raw.erase(item),
-                    Some(true) => continue,
-                    None => break,
+                    core::ops::ControlFlow::Continue(kept) => {
+                        if !kept {
+                            self.raw.erase(item);
+                        }
+                    }
+                    core::ops::ControlFlow::Break(kept) => {
+                        if !kept {
+                            self.raw.erase(item);
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -2440,7 +2458,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retain_with_break() {
+    fn test_filter() {
         let mut table = HashTable::new();
         let hasher = DefaultHashBuilder::default();
         let hasher = |val: &_| {
@@ -2452,18 +2470,18 @@ mod tests {
         for x in 0..100 {
             table.insert_unique(hasher(&x), x, hasher);
         }
-        // looping and removing any value > 50, but stop after 40 iterations
+        // looping and removing any value > 50, but stop after 40 removals
         let mut removed = 0;
-        table.retain_with_break(|&mut v| {
+        table.filter(|&mut v| {
             if removed < 40 {
                 if v > 50 {
                     removed += 1;
-                    Some(false)
+                    core::ops::ControlFlow::Continue(false)
                 } else {
-                    Some(true)
+                    core::ops::ControlFlow::Continue(true)
                 }
             } else {
-                None
+                core::ops::ControlFlow::Break(true)
             }
         });
         assert_eq!(table.len(), 60);
