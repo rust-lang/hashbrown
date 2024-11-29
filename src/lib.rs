@@ -42,6 +42,7 @@
     feature = "nightly",
     allow(clippy::incompatible_msrv, internal_features)
 )]
+#![cfg_attr(target_arch = "loongarch64", feature(stdarch_loongarch))]
 
 /// Default hasher for [`HashMap`] and [`HashSet`].
 #[cfg(feature = "default-hasher")]
