@@ -24,6 +24,13 @@ cfg_if! {
     ))] {
         mod neon;
         use neon as imp;
+    } else if #[cfg(all(
+        target_arch = "loongarch64",
+        target_feature = "lsx",
+        not(miri),
+    ))] {
+        mod lsx;
+        use lsx as imp;
     } else {
         mod generic;
         use generic as imp;

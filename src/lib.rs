@@ -39,6 +39,7 @@
 #![warn(rust_2018_idioms)]
 #![cfg_attr(feature = "nightly", warn(fuzzy_provenance_casts))]
 #![cfg_attr(feature = "nightly", allow(internal_features))]
+#![cfg_attr(target_arch = "loongarch64", feature(stdarch_loongarch))]
 
 /// Default hasher for [`HashMap`] and [`HashSet`].
 #[cfg(feature = "default-hasher")]
