@@ -917,7 +917,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn key(&self) -> &K {
+    pub fn key(&self) -> &'a K {
         unsafe { &self.elem.as_ref().0 }
     }
 
@@ -948,7 +948,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// assert!(Rc::strong_count(&key_one) == 1 && Rc::strong_count(&key_two) == 2);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn key_mut(&mut self) -> &mut K {
+    pub fn key_mut(&mut self) -> &'a mut K {
         unsafe { &mut self.elem.as_mut().0 }
     }
 
@@ -1001,7 +1001,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get(&self) -> &V {
+    pub fn get(&self) -> &'a V {
         unsafe { &self.elem.as_ref().1 }
     }
 
@@ -1047,7 +1047,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// assert_eq!(map[&"a"], 1000);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get_mut(&mut self) -> &mut V {
+    pub fn get_mut(&mut self) -> &'a mut V {
         unsafe { &mut self.elem.as_mut().1 }
     }
 
@@ -1066,7 +1066,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get_key_value(&self) -> (&K, &V) {
+    pub fn get_key_value(&self) -> (&'a K, &'a V) {
         unsafe {
             let (key, value) = self.elem.as_ref();
             (key, value)
@@ -1102,7 +1102,7 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// assert!(Rc::strong_count(&key_one) == 1 && Rc::strong_count(&key_two) == 2);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get_key_value_mut(&mut self) -> (&mut K, &mut V) {
+    pub fn get_key_value_mut(&mut self) -> (&'a mut K, &'a mut V) {
         unsafe {
             let &mut (ref mut key, ref mut value) = self.elem.as_mut();
             (key, value)
