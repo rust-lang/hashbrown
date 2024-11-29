@@ -3816,7 +3816,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get(&self) -> &V {
+    pub fn get(&self) -> &'a V {
         unsafe { &self.elem.as_ref().1 }
     }
 
@@ -3848,7 +3848,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// assert_eq!(map["poneyland"], 24);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get_mut(&mut self) -> &mut V {
+    pub fn get_mut(&mut self) -> &'a mut V {
         unsafe { &mut self.elem.as_mut().1 }
     }
 
