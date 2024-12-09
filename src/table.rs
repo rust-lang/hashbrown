@@ -2,8 +2,8 @@ use core::{fmt, iter::FusedIterator, marker::PhantomData};
 
 use crate::{
     raw::{
-        Allocator, Bucket, Global, InsertSlot, RawDrain, RawExtractIf, RawIntoIter, RawIter,
-        RawIterHash, RawTable,
+        Allocator, Bucket, Global, RawDrain, RawExtractIf, RawIntoIter, RawIter, RawIterHash,
+        RawTable,
     },
     TryReserveError,
 };
@@ -1814,7 +1814,7 @@ where
     A: Allocator,
 {
     hash: u64,
-    insert_slot: InsertSlot,
+    insert_slot: usize,
     table: &'a mut HashTable<T, A>,
 }
 
