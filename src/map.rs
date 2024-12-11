@@ -4028,11 +4028,11 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
     ///
     /// match map.entry("abc") {
-    ///   Entry::Occupied(mut e) => if some_expensive_operation(e.map().get("def")) { e.insert(5); },
+    ///   Entry::Occupied(mut e) => if some_expensive_operation(e.hash_map().get("def")) { e.insert(5); },
     ///   Entry::Vacant(_) => {}
     /// }
     /// ```
-    pub fn map(&self) -> &HashMap<K, V, S, A> {
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
         self.table
     }
 }
@@ -4154,11 +4154,11 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
     /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
     ///
     /// match map.entry("abc") {
-    ///   Entry::Vacant(mut e) => if some_expensive_operation(e.map().get("def")) { e.insert(5); },
+    ///   Entry::Vacant(e) => if some_expensive_operation(e.hash_map().get("def")) { e.insert(5); },
     ///   Entry::Occupied(_) => {}
     /// }
     /// ```
-    pub fn map(&self) -> &HashMap<K, V, S, A> {
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
         self.table
     }
 }
