@@ -3714,6 +3714,33 @@ impl<'a, K, V, S, A: Allocator> Entry<'a, K, V, S, A> {
             Entry::Vacant(_) => self,
         }
     }
+
+    /// Gets a reference to the map that owns this entry.
+    ///
+    /// This can be used to perform additional lookups while deciding
+    /// how to process the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::Entry;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
+    ///
+    /// let e = map.entry("abc");
+    /// if some_expensive_operation(e.hash_map().get("def")) {
+    ///   e.insert(5);
+    /// }
+    /// ```
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
+        match *self {
+            Entry::Occupied(ref entry) => entry.hash_map(),
+            Entry::Vacant(ref entry) => entry.hash_map(),
+        }
+    }
 }
 
 impl<'a, K, V: Default, S, A: Allocator> Entry<'a, K, V, S, A> {
@@ -4011,6 +4038,31 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
             }
         }
     }
+
+    /// Gets a reference to the map that owns this entry.
+    ///
+    /// This can be used to perform additional lookups while deciding
+    /// how to process the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::Entry;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
+    ///
+    /// if let Entry::Occupied(mut e) = map.entry("abc") {
+    ///   if some_expensive_operation(e.hash_map().get("def")) {
+    ///     e.insert(5);
+    ///  }
+    /// }
+    /// ```
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
+        self.table
+    }
 }
 
 impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
@@ -4112,6 +4164,31 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
             elem,
             table: self.table,
         }
+    }
+
+    /// Gets a reference to the map that owns this entry.
+    ///
+    /// This can be used to perform additional lookups while deciding
+    /// how to process the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::Entry;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
+    ///
+    /// if let Entry::Vacant(e) = map.entry("abc") {
+    ///   if some_expensive_operation(e.hash_map().get("def")) {
+    ///     e.insert(5);
+    ///   }
+    /// }
+    /// ```
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
+        self.table
     }
 }
 
@@ -4295,6 +4372,33 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> EntryRef<'a, 'b, K, Q, V, S, A> {
             EntryRef::Vacant(entry) => EntryRef::Vacant(entry),
         }
     }
+
+    /// Gets a reference to the map that owns this entry.
+    ///
+    /// This can be used to perform additional lookups while deciding
+    /// how to process the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::EntryRef;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
+    ///
+    /// let e = map.entry_ref("abc");
+    /// if some_expensive_operation(e.hash_map().get("def")) {
+    ///   e.insert(5);
+    /// }
+    /// ```
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
+        match *self {
+            EntryRef::Occupied(ref entry) => entry.hash_map(),
+            EntryRef::Vacant(ref entry) => entry.hash_map(),
+        }
+    }
 }
 
 impl<'a, 'b, K, Q: ?Sized, V: Default, S, A: Allocator> EntryRef<'a, 'b, K, Q, V, S, A> {
@@ -4412,6 +4516,31 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'a, 'b, K, Q, V, S
             elem,
             table: self.table,
         }
+    }
+
+    /// Gets a reference to the map that owns this entry.
+    ///
+    /// This can be used to perform additional lookups while deciding
+    /// how to process the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use hashbrown::hash_map::EntryRef;
+    ///
+    /// let mut map: HashMap<&str, u32> = HashMap::new();
+    ///
+    /// fn some_expensive_operation(val: Option<&u32>) -> bool { true }
+    ///
+    /// if let EntryRef::Vacant(e) = map.entry_ref("abc") {
+    ///   if some_expensive_operation(e.hash_map().get("def")) {
+    ///     e.insert(5);
+    ///   }
+    /// }
+    /// ```
+    pub fn hash_map(&self) -> &HashMap<K, V, S, A> {
+        self.table
     }
 }
 
