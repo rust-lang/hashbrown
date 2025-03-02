@@ -2,12 +2,8 @@
 //   Hasher: std default (SipHash) and crate default (foldhash).
 //   Int key distribution: low bit heavy, top bit heavy, and random.
 //   Task: basic functionality: insert, insert_erase, lookup, lookup_fail, iter
-#![feature(test)]
 
-extern crate test;
-
-use test::{black_box, Bencher};
-
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hashbrown::DefaultHashBuilder;
 use hashbrown::{HashMap, HashSet};
 use std::{
@@ -78,15 +74,16 @@ macro_rules! bench_suite {
 
 macro_rules! bench_insert {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
+        fn $name(c: &mut Criterion) {
             let mut m = $maptype::with_capacity_and_hasher(SIZE, Default::default());
-            b.iter(|| {
-                m.clear();
-                for i in ($keydist).take(SIZE) {
-                    m.insert(i, (DropType(i), [i; 20]));
-                }
-                black_box(&mut m);
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    m.clear();
+                    for i in ($keydist).take(SIZE) {
+                        m.insert(i, (DropType(i), [i; 20]));
+                    }
+                    black_box(&mut m);
+                });
             });
             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
         }
@@ -105,15 +102,16 @@ bench_suite!(
 
 macro_rules! bench_grow_insert {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            b.iter(|| {
-                let mut m = $maptype::default();
-                for i in ($keydist).take(SIZE) {
-                    m.insert(i, DropType(i));
-                }
-                black_box(&mut m);
-            })
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    let mut m = $maptype::default();
+                    for i in ($keydist).take(SIZE) {
+                        m.insert(i, DropType(i));
+                    }
+                    black_box(&mut m);
+                });
+            });
         }
     };
 }
@@ -130,24 +128,25 @@ bench_suite!(
 
 macro_rules! bench_insert_erase {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
+        fn $name(c: &mut Criterion) {
             let mut base = $maptype::default();
             for i in ($keydist).take(SIZE) {
                 base.insert(i, DropType(i));
             }
             let skip = $keydist.skip(SIZE);
-            b.iter(|| {
-                let mut m = base.clone();
-                let mut add_iter = skip.clone();
-                let mut remove_iter = $keydist;
-                // While keeping the size constant,
-                // replace the first keydist with the second.
-                for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
-                    m.insert(add, DropType(add));
-                    black_box(m.remove(&remove));
-                }
-                black_box(m);
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    let mut m = base.clone();
+                    let mut add_iter = skip.clone();
+                    let mut remove_iter = $keydist;
+                    // While keeping the size constant,
+                    // replace the first keydist with the second.
+                    for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
+                        m.insert(add, DropType(add));
+                        black_box(m.remove(&remove));
+                    }
+                    black_box(m);
+                });
             });
             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
         }
@@ -166,17 +165,18 @@ bench_suite!(
 
 macro_rules! bench_lookup {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
+        fn $name(c: &mut Criterion) {
             let mut m = $maptype::default();
             for i in $keydist.take(SIZE) {
                 m.insert(i, DropType(i));
             }
 
-            b.iter(|| {
-                for i in $keydist.take(SIZE) {
-                    black_box(m.get(&i));
-                }
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    for i in $keydist.take(SIZE) {
+                        black_box(m.get(&i));
+                    }
+                });
             });
             eprintln!("{}", SIDE_EFFECT.load(atomic::Ordering::SeqCst));
         }
@@ -195,19 +195,20 @@ bench_suite!(
 
 macro_rules! bench_lookup_fail {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
+        fn $name(c: &mut Criterion) {
             let mut m = $maptype::default();
             let mut iter = $keydist;
             for i in (&mut iter).take(SIZE) {
                 m.insert(i, DropType(i));
             }
 
-            b.iter(|| {
-                for i in (&mut iter).take(SIZE) {
-                    black_box(m.get(&i));
-                }
-            })
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    for i in (&mut iter).take(SIZE) {
+                        black_box(m.get(&i));
+                    }
+                });
+            });
         }
     };
 }
@@ -224,18 +225,19 @@ bench_suite!(
 
 macro_rules! bench_iter {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
+        fn $name(c: &mut Criterion) {
             let mut m = $maptype::default();
             for i in ($keydist).take(SIZE) {
                 m.insert(i, DropType(i));
             }
 
-            b.iter(|| {
-                for i in &m {
-                    black_box(i);
-                }
-            })
+            c.bench_function(stringify!($name), |b| {
+                b.iter(|| {
+                    for i in &m {
+                        black_box(i);
+                    }
+                });
+            });
         }
     };
 }
@@ -250,80 +252,132 @@ bench_suite!(
     iter_std_random
 );
 
-#[bench]
-fn clone_small(b: &mut Bencher) {
+fn clone_small(c: &mut Criterion) {
     let mut m = HashMap::new();
     for i in 0..10 {
         m.insert(i, DropType(i));
     }
 
-    b.iter(|| {
-        black_box(m.clone());
-    })
-}
-
-#[bench]
-fn clone_from_small(b: &mut Bencher) {
-    let mut m = HashMap::new();
-    let mut m2 = HashMap::new();
-    for i in 0..10 {
-        m.insert(i, DropType(i));
-    }
-
-    b.iter(|| {
-        m2.clone_from(&m);
-        black_box(&mut m2);
-    })
-}
-
-#[bench]
-fn clone_large(b: &mut Bencher) {
-    let mut m = HashMap::new();
-    for i in 0..1000 {
-        m.insert(i, DropType(i));
-    }
-
-    b.iter(|| {
-        black_box(m.clone());
-    })
-}
-
-#[bench]
-fn clone_from_large(b: &mut Bencher) {
-    let mut m = HashMap::new();
-    let mut m2 = HashMap::new();
-    for i in 0..1000 {
-        m.insert(i, DropType(i));
-    }
-
-    b.iter(|| {
-        m2.clone_from(&m);
-        black_box(&mut m2);
-    })
-}
-
-#[bench]
-fn rehash_in_place(b: &mut Bencher) {
-    b.iter(|| {
-        let mut set = HashSet::new();
-
-        // Each loop triggers one rehash
-        for _ in 0..10 {
-            for i in 0..223 {
-                set.insert(i);
-            }
-
-            assert_eq!(
-                set.capacity(),
-                224,
-                "The set must be at or close to capacity to trigger a re hashing"
-            );
-
-            for i in 100..1400 {
-                set.remove(&(i - 100));
-                set.insert(i);
-            }
-            set.clear();
-        }
+    c.bench_function("clone_small", |b| {
+        b.iter(|| {
+            black_box(m.clone());
+        });
     });
 }
+
+fn clone_from_small(c: &mut Criterion) {
+    let mut m = HashMap::new();
+    let mut m2 = HashMap::new();
+    for i in 0..10 {
+        m.insert(i, DropType(i));
+    }
+
+    c.bench_function("clone_from_small", |b| {
+        b.iter(|| {
+            m2.clone_from(&m);
+            black_box(&mut m2);
+        });
+    });
+}
+
+fn clone_large(c: &mut Criterion) {
+    let mut m = HashMap::new();
+    for i in 0..1000 {
+        m.insert(i, DropType(i));
+    }
+
+    c.bench_function("clone_large", |b| {
+        b.iter(|| {
+            black_box(m.clone());
+        });
+    });
+}
+
+fn clone_from_large(c: &mut Criterion) {
+    let mut m = HashMap::new();
+    let mut m2 = HashMap::new();
+    for i in 0..1000 {
+        m.insert(i, DropType(i));
+    }
+
+    c.bench_function("clone_from_large", |b| {
+        b.iter(|| {
+            m2.clone_from(&m);
+            black_box(&mut m2);
+        });
+    });
+}
+
+fn rehash_in_place(c: &mut Criterion) {
+    c.bench_function("rehash_in_place", |b| {
+        b.iter(|| {
+            let mut set = HashSet::new();
+
+            // Each loop triggers one rehash
+            for _ in 0..10 {
+                for i in 0..223 {
+                    set.insert(i);
+                }
+
+                assert_eq!(
+                    set.capacity(),
+                    224,
+                    "The set must be at or close to capacity to trigger a rehashing"
+                );
+
+                for i in 100..1400 {
+                    set.remove(&(i - 100));
+                    set.insert(i);
+                }
+                set.clear();
+            }
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    insert_foldhash_serial,
+    insert_std_serial,
+    insert_foldhash_highbits,
+    insert_std_highbits,
+    insert_foldhash_random,
+    insert_std_random,
+    grow_insert_foldhash_serial,
+    grow_insert_std_serial,
+    grow_insert_foldhash_highbits,
+    grow_insert_std_highbits,
+    grow_insert_foldhash_random,
+    grow_insert_std_random,
+    insert_erase_foldhash_serial,
+    insert_erase_std_serial,
+    insert_erase_foldhash_highbits,
+    insert_erase_std_highbits,
+    insert_erase_foldhash_random,
+    insert_erase_std_random,
+    lookup_foldhash_serial,
+    lookup_std_serial,
+    lookup_foldhash_highbits,
+    lookup_std_highbits,
+    lookup_foldhash_random,
+    lookup_std_random,
+    lookup_fail_foldhash_serial,
+    lookup_fail_std_serial,
+    lookup_fail_foldhash_highbits,
+    lookup_fail_std_highbits,
+    lookup_fail_foldhash_random,
+    lookup_fail_std_random,
+    iter_foldhash_serial,
+    iter_std_serial,
+    iter_foldhash_highbits,
+    iter_std_highbits,
+    iter_foldhash_random,
+    iter_std_random,
+    clone_small,
+    clone_from_small,
+    clone_large,
+    clone_from_large,
+    rehash_in_place
+);
+
+criterion_main!(benches);
