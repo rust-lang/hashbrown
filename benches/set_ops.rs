@@ -5,12 +5,8 @@
 //! Each assigning test is done in the configuration that is faster. Cheating, I know.
 //! The exception to this is Sub, because there the result differs. So I made two benchmarks for Sub.
 
-#![feature(test)]
-
-extern crate test;
-
+use criterion::{criterion_group, criterion_main, Criterion};
 use hashbrown::HashSet;
-use test::Bencher;
 
 /// The number of items to generate for the larger of the sets.
 const LARGE_SET_SIZE: usize = 1000;
@@ -27,122 +23,141 @@ fn create_set(start: usize, end: usize) -> HashSet<String> {
     (start..end).map(|nr| format!("key{}", nr)).collect()
 }
 
-#[bench]
-fn set_ops_bit_or(b: &mut Bencher) {
+fn set_ops_bit_or(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| &large_set | &small_set)
+    c.bench_function("set_ops_bit_or", |b| b.iter(|| &large_set | &small_set));
 }
 
-#[bench]
-fn set_ops_bit_and(b: &mut Bencher) {
+fn set_ops_bit_and(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| &large_set & &small_set)
+    c.bench_function("set_ops_bit_and", |b| b.iter(|| &large_set & &small_set));
 }
 
-#[bench]
-fn set_ops_bit_xor(b: &mut Bencher) {
+fn set_ops_bit_xor(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| &large_set ^ &small_set)
+    c.bench_function("set_ops_bit_xor", |b| b.iter(|| &large_set ^ &small_set));
 }
 
-#[bench]
-fn set_ops_sub_large_small(b: &mut Bencher) {
+fn set_ops_sub_large_small(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| &large_set - &small_set)
-}
-
-#[bench]
-fn set_ops_sub_small_large(b: &mut Bencher) {
-    let large_set = create_set(0, LARGE_SET_SIZE);
-    let small_set = create_set(
-        LARGE_SET_SIZE - OVERLAP,
-        LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
-    );
-    b.iter(|| &small_set - &large_set)
-}
-
-#[bench]
-fn set_ops_bit_or_assign(b: &mut Bencher) {
-    let large_set = create_set(0, LARGE_SET_SIZE);
-    let small_set = create_set(
-        LARGE_SET_SIZE - OVERLAP,
-        LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
-    );
-    b.iter(|| {
-        let mut set = large_set.clone();
-        set |= &small_set;
-        set
+    c.bench_function("set_ops_sub_large_small", |b| {
+        b.iter(|| &large_set - &small_set)
     });
 }
 
-#[bench]
-fn set_ops_bit_and_assign(b: &mut Bencher) {
+fn set_ops_sub_small_large(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| {
-        let mut set = small_set.clone();
-        set &= &large_set;
-        set
+    c.bench_function("set_ops_sub_small_large", |b| {
+        b.iter(|| &small_set - &large_set)
     });
 }
 
-#[bench]
-fn set_ops_bit_xor_assign(b: &mut Bencher) {
+fn set_ops_bit_or_assign(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| {
-        let mut set = large_set.clone();
-        set ^= &small_set;
-        set
+    c.bench_function("set_ops_bit_or_assign", |b| {
+        b.iter(|| {
+            let mut set = large_set.clone();
+            set |= &small_set;
+            set
+        });
     });
 }
 
-#[bench]
-fn set_ops_sub_assign_large_small(b: &mut Bencher) {
+fn set_ops_bit_and_assign(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| {
-        let mut set = large_set.clone();
-        set -= &small_set;
-        set
+    c.bench_function("set_ops_bit_and_assign", |b| {
+        b.iter(|| {
+            let mut set = small_set.clone();
+            set &= &large_set;
+            set
+        });
     });
 }
 
-#[bench]
-fn set_ops_sub_assign_small_large(b: &mut Bencher) {
+fn set_ops_bit_xor_assign(c: &mut Criterion) {
     let large_set = create_set(0, LARGE_SET_SIZE);
     let small_set = create_set(
         LARGE_SET_SIZE - OVERLAP,
         LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
     );
-    b.iter(|| {
-        let mut set = small_set.clone();
-        set -= &large_set;
-        set
+    c.bench_function("set_ops_bit_xor_assign", |b| {
+        b.iter(|| {
+            let mut set = large_set.clone();
+            set ^= &small_set;
+            set
+        });
     });
 }
+
+fn set_ops_sub_assign_large_small(c: &mut Criterion) {
+    let large_set = create_set(0, LARGE_SET_SIZE);
+    let small_set = create_set(
+        LARGE_SET_SIZE - OVERLAP,
+        LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
+    );
+    c.bench_function("set_ops_sub_assign_large_small", |b| {
+        b.iter(|| {
+            let mut set = large_set.clone();
+            set -= &small_set;
+            set
+        });
+    });
+}
+
+fn set_ops_sub_assign_small_large(c: &mut Criterion) {
+    let large_set = create_set(0, LARGE_SET_SIZE);
+    let small_set = create_set(
+        LARGE_SET_SIZE - OVERLAP,
+        LARGE_SET_SIZE + SMALL_SET_SIZE - OVERLAP,
+    );
+    c.bench_function("set_ops_sub_assign_small_large", |b| {
+        b.iter(|| {
+            let mut set = small_set.clone();
+            set -= &large_set;
+            set
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    set_ops_bit_or,
+    set_ops_bit_and,
+    set_ops_bit_xor,
+    set_ops_sub_large_small,
+    set_ops_sub_small_large,
+    set_ops_bit_or_assign,
+    set_ops_bit_and_assign,
+    set_ops_bit_xor_assign,
+    set_ops_sub_assign_large_small,
+    set_ops_sub_assign_small_large
+);
+criterion_main!(benches);
