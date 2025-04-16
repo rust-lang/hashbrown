@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Relaxed MSRV to 1.74.0. (#609)
+
 ## [v0.15.2] - 2024-11-14
 
 ### Added
