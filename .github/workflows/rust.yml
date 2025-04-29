@@ -82,7 +82,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@nightly
-    - uses: dtolnay/rust-toolchain@1.65.0 # MSRV
+    - uses: dtolnay/rust-toolchain@1.74.0 # MSRV
     - run: cargo +nightly generate-lockfile -Z direct-minimal-versions
     - env:
         TARGET: x86_64-unknown-linux-gnu

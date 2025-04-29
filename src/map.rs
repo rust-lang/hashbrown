@@ -242,10 +242,7 @@ where
     Q: Hash + ?Sized,
     S: BuildHasher,
 {
-    use core::hash::Hasher;
-    let mut state = hash_builder.build_hasher();
-    val.hash(&mut state);
-    state.finish()
+    hash_builder.hash_one(val)
 }
 
 #[cfg(feature = "nightly")]
@@ -2022,7 +2019,7 @@ where
         }
 
         self.iter()
-            .all(|(key, value)| other.get(key).map_or(false, |v| *value == *v))
+            .all(|(key, value)| other.get(key).is_some_and(|v| *value == *v))
     }
 }
 
@@ -4490,7 +4487,7 @@ where
         let reserve = if self.is_empty() {
             iter.size_hint().0
         } else {
-            (iter.size_hint().0 + 1) / 2
+            iter.size_hint().0.div_ceil(2)
         };
         self.reserve(reserve);
         iter.for_each(move |(k, v)| {
