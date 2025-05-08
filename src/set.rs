@@ -3102,4 +3102,20 @@ mod test_set {
             set.get_or_insert_with(&key, |_| value);
         }
     }
+
+    #[test]
+    fn test_sub_assign() {
+        let mut a: HashSet<_> = vec![1, 2, 3, 4].into_iter().collect();
+        let b: HashSet<_> = vec![3, 5].into_iter().collect();
+
+        a -= &b;
+
+        let mut i = 0;
+        let expected = [1, 2, 4];
+        for x in &a {
+            assert!(expected.contains(x));
+            i += 1;
+        }
+        assert_eq!(i, expected.len());
+    }
 }
