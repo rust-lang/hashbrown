@@ -1,5 +1,5 @@
 // This benchmark suite contains some benchmarks along a set of dimensions:
-//   Hasher: std default (SipHash) and crate default (foldhash).
+//   Hasher: std default (SipHash) and crate default (rapidhash).
 //   Int key distribution: low bit heavy, top bit heavy, and random.
 //   Task: basic functionality: insert, insert_erase, lookup, lookup_fail, iter
 #![feature(test)]
@@ -18,7 +18,7 @@ use std::{
 const SIZE: usize = 1000;
 
 // The default hashmap when using this crate directly.
-type FoldHashMap<K, V> = HashMap<K, V, DefaultHashBuilder>;
+type RapidHashMap<K, V> = HashMap<K, V, DefaultHashBuilder>;
 // This uses the hashmap from this crate with the default hasher of the stdlib.
 type StdHashMap<K, V> = HashMap<K, V, RandomState>;
 
@@ -56,14 +56,14 @@ impl Drop for DropType {
 }
 
 macro_rules! bench_suite {
-    ($bench_macro:ident, $bench_foldhash_serial:ident, $bench_std_serial:ident,
-     $bench_foldhash_highbits:ident, $bench_std_highbits:ident,
-     $bench_foldhash_random:ident, $bench_std_random:ident) => {
-        $bench_macro!($bench_foldhash_serial, FoldHashMap, 0..);
+    ($bench_macro:ident, $bench_rapidhash_serial:ident, $bench_std_serial:ident,
+     $bench_rapidhash_highbits:ident, $bench_std_highbits:ident,
+     $bench_rapidhash_random:ident, $bench_std_random:ident) => {
+        $bench_macro!($bench_rapidhash_serial, RapidHashMap, 0..);
         $bench_macro!($bench_std_serial, StdHashMap, 0..);
         $bench_macro!(
-            $bench_foldhash_highbits,
-            FoldHashMap,
+            $bench_rapidhash_highbits,
+            RapidHashMap,
             (0..).map(usize::swap_bytes)
         );
         $bench_macro!(
@@ -71,7 +71,7 @@ macro_rules! bench_suite {
             StdHashMap,
             (0..).map(usize::swap_bytes)
         );
-        $bench_macro!($bench_foldhash_random, FoldHashMap, RandomKeys::new());
+        $bench_macro!($bench_rapidhash_random, RapidHashMap, RandomKeys::new());
         $bench_macro!($bench_std_random, StdHashMap, RandomKeys::new());
     };
 }
@@ -95,11 +95,11 @@ macro_rules! bench_insert {
 
 bench_suite!(
     bench_insert,
-    insert_foldhash_serial,
+    insert_rapidhash_serial,
     insert_std_serial,
-    insert_foldhash_highbits,
+    insert_rapidhash_highbits,
     insert_std_highbits,
-    insert_foldhash_random,
+    insert_rapidhash_random,
     insert_std_random
 );
 
@@ -120,11 +120,11 @@ macro_rules! bench_grow_insert {
 
 bench_suite!(
     bench_grow_insert,
-    grow_insert_foldhash_serial,
+    grow_insert_rapidhash_serial,
     grow_insert_std_serial,
-    grow_insert_foldhash_highbits,
+    grow_insert_rapidhash_highbits,
     grow_insert_std_highbits,
-    grow_insert_foldhash_random,
+    grow_insert_rapidhash_random,
     grow_insert_std_random
 );
 
@@ -156,11 +156,11 @@ macro_rules! bench_insert_erase {
 
 bench_suite!(
     bench_insert_erase,
-    insert_erase_foldhash_serial,
+    insert_erase_rapidhash_serial,
     insert_erase_std_serial,
-    insert_erase_foldhash_highbits,
+    insert_erase_rapidhash_highbits,
     insert_erase_std_highbits,
-    insert_erase_foldhash_random,
+    insert_erase_rapidhash_random,
     insert_erase_std_random
 );
 
@@ -185,11 +185,11 @@ macro_rules! bench_lookup {
 
 bench_suite!(
     bench_lookup,
-    lookup_foldhash_serial,
+    lookup_rapidhash_serial,
     lookup_std_serial,
-    lookup_foldhash_highbits,
+    lookup_rapidhash_highbits,
     lookup_std_highbits,
-    lookup_foldhash_random,
+    lookup_rapidhash_random,
     lookup_std_random
 );
 
@@ -214,11 +214,11 @@ macro_rules! bench_lookup_fail {
 
 bench_suite!(
     bench_lookup_fail,
-    lookup_fail_foldhash_serial,
+    lookup_fail_rapidhash_serial,
     lookup_fail_std_serial,
-    lookup_fail_foldhash_highbits,
+    lookup_fail_rapidhash_highbits,
     lookup_fail_std_highbits,
-    lookup_fail_foldhash_random,
+    lookup_fail_rapidhash_random,
     lookup_fail_std_random
 );
 
@@ -242,11 +242,11 @@ macro_rules! bench_iter {
 
 bench_suite!(
     bench_iter,
-    iter_foldhash_serial,
+    iter_rapidhash_serial,
     iter_std_serial,
-    iter_foldhash_highbits,
+    iter_rapidhash_highbits,
     iter_std_highbits,
-    iter_foldhash_random,
+    iter_rapidhash_random,
     iter_std_random
 );
 

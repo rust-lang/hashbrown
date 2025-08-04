@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Changed the default hasher to rapidhash. (#563)
+
 ## [0.15.4](https://github.com/rust-lang/hashbrown/compare/v0.15.3...v0.15.4) - 2025-06-05
 
 ### Changed

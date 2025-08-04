@@ -49,7 +49,7 @@
 
 /// Default hasher for [`HashMap`] and [`HashSet`].
 #[cfg(feature = "default-hasher")]
-pub type DefaultHashBuilder = foldhash::fast::RandomState;
+pub type DefaultHashBuilder = rapidhash::fast::RandomState;
 
 /// Dummy default hasher for [`HashMap`] and [`HashSet`].
 #[cfg(not(feature = "default-hasher"))]
