@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.6](https://github.com/rust-lang/hashbrown/compare/v0.15.5...v0.15.6) - 2025-08-22
+
+### Other
+
+- Merge pull request #639 from gaujay/unbloat-get_inner-perf
+- Merge pull request #637 from gaujay/add-benchmarks
+- Check MSRV in CI with cargo-msrv
+
 ## [0.15.5](https://github.com/rust-lang/hashbrown/compare/v0.15.4...v0.15.5) - 2025-08-07
 
 ### Added
