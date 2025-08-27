@@ -26,8 +26,8 @@ in environments without `std`, such as embedded systems and kernels.
 ## Features
 
 - Drop-in replacement for the standard library `HashMap` and `HashSet` types.
-- Uses [foldhash](https://github.com/orlp/foldhash) as the default hasher, which is much faster than SipHash.
-  However, foldhash does *not provide the same level of HashDoS resistance* as SipHash, so if that is important to you, you might want to consider using a different hasher.
+- Uses [rapidhash](https://github.com/hoxxep/rapidhash) as the default hasher, which is much faster than SipHash.
+  However, rapidhash does *not provide the same level of HashDoS resistance* as SipHash, so if that is important to you, you might want to consider using a different hasher.
 - Around 2x faster than the previous standard library `HashMap`.
 - Lower memory usage: only 1 byte of overhead per entry instead of 8.
 - Compatible with `#[no_std]` (but requires a global allocator with the `alloc` crate).
@@ -61,7 +61,7 @@ This crate has the following Cargo features:
 - `raw-entry`: Enables access to the deprecated `RawEntry` API.
 - `inline-more`: Adds inline hints to most functions, improving run-time performance at the cost
   of compilation time. (enabled by default)
-- `default-hasher`: Compiles with foldhash as default hasher. (enabled by default)
+- `default-hasher`: Compiles with rapidhash as default hasher. (enabled by default)
 - `allocator-api2`: Enables support for allocators that support `allocator-api2`. (enabled by default)
 
 ## License
