@@ -1,5 +1,6 @@
 hashbrown
 =========
+![hashbrown](https://i.ibb.co/DHMV8t6D/image.png)
 
 [![Build Status](https://github.com/rust-lang/hashbrown/actions/workflows/rust.yml/badge.svg)](https://github.com/rust-lang/hashbrown/actions)
 [![Crates.io](https://img.shields.io/crates/v/hashbrown.svg)](https://crates.io/crates/hashbrown)
