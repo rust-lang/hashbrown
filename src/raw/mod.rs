@@ -1326,7 +1326,7 @@ impl<T, A: Allocator> RawTable<T, A> {
 
     /// Returns an iterator over occupied buckets that could match a given hash.
     ///
-    /// `RawTable` only stores 7 bits of the hash value, so this iterator may
+    /// `RawTable` only stores 8 bits of the hash value, so this iterator may
     /// return items that have a hash value different than the one provided. You
     /// should always validate the returned values before using them.
     ///
@@ -1683,7 +1683,7 @@ impl RawTableInner {
     ) -> Result<usize, InsertSlot> {
         let mut insert_slot = None;
 
-        let tag_hash = Tag::full(hash);
+        let tag_hash = Tag::full32(hash);
         let mut probe_seq = self.probe_seq(hash);
 
         loop {
@@ -1893,7 +1893,7 @@ impl RawTableInner {
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline(always)]
     unsafe fn find_inner(&self, hash: u64, eq: &mut dyn FnMut(usize) -> bool) -> Option<usize> {
-        let tag_hash = Tag::full(hash);
+        let tag_hash = Tag::full32(hash);
         let mut probe_seq = self.probe_seq(hash);
 
         loop {
@@ -4006,7 +4006,7 @@ impl<T, A: Allocator> FusedIterator for RawDrain<'_, T, A> {}
 
 /// Iterator over occupied buckets that could match a given hash.
 ///
-/// `RawTable` only stores 7 bits of the hash value, so this iterator may return
+/// `RawTable` only stores 8 bits of the hash value, so this iterator may return
 /// items that have a hash value different than the one provided. You should
 /// always validate the returned values before using them.
 ///
@@ -4033,8 +4033,8 @@ struct RawIterHashInner {
     bucket_mask: usize,
     ctrl: NonNull<u8>,
 
-    // The top 7 bits of the hash.
-    tag_hash: Tag,
+    // The top 8 bits of the hash.
+    tag_hash: i32,
 
     // The sequence of groups to probe in the search.
     probe_seq: ProbeSeq,
@@ -4079,7 +4079,7 @@ impl<T> Default for RawIterHash<T> {
 impl RawIterHashInner {
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn new(table: &RawTableInner, hash: u64) -> Self {
-        let tag_hash = Tag::full(hash);
+        let tag_hash = Tag::full32(hash);
         let probe_seq = table.probe_seq(hash);
         let group = Group::load(table.ctrl(probe_seq.pos));
         let bitmask = group.match_tag(tag_hash).into_iter();
