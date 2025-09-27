@@ -1,0 +1,3 @@
+# https://github.com/rust-lang/rustfmt/blob/master/Configurations.md
+
+edition = "2021"
