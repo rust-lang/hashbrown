@@ -1,13 +1,16 @@
-use crate::raw::RawTable;
+use crate::raw::{Allocator, RawTable};
 use crate::{HashMap, HashSet};
 use paralight::iter::{
     IntoParallelRefMutSource, IntoParallelRefSource, ParallelSource, SourceCleanup,
     SourceDescriptor,
 };
 
-impl<'data, T: Sync + 'data> IntoParallelRefSource<'data> for HashSet<T> {
+// HashSet.par_iter()
+impl<'data, T: Sync + 'data, S: 'data, A: Allocator + Sync + 'data> IntoParallelRefSource<'data>
+    for HashSet<T, S, A>
+{
     type Item = Option<&'data T>;
-    type Source = HashSetRefParallelSource<'data, T>;
+    type Source = HashSetRefParallelSource<'data, T, S, A>;
 
     fn par_iter(&'data self) -> Self::Source {
         HashSetRefParallelSource { hash_set: self }
@@ -15,11 +18,13 @@ impl<'data, T: Sync + 'data> IntoParallelRefSource<'data> for HashSet<T> {
 }
 
 #[must_use = "iterator adaptors are lazy"]
-pub struct HashSetRefParallelSource<'data, T> {
-    hash_set: &'data HashSet<T>,
+pub struct HashSetRefParallelSource<'data, T, S, A: Allocator> {
+    hash_set: &'data HashSet<T, S, A>,
 }
 
-impl<'data, T: Sync> ParallelSource for HashSetRefParallelSource<'data, T> {
+impl<'data, T: Sync, S, A: Allocator + Sync> ParallelSource
+    for HashSetRefParallelSource<'data, T, S, A>
+{
     type Item = Option<&'data T>;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
@@ -29,11 +34,11 @@ impl<'data, T: Sync> ParallelSource for HashSetRefParallelSource<'data, T> {
     }
 }
 
-struct HashSetRefSourceDescriptor<'data, T: Sync> {
-    table: &'data RawTable<(T, ())>,
+struct HashSetRefSourceDescriptor<'data, T: Sync, A: Allocator> {
+    table: &'data RawTable<(T, ()), A>,
 }
 
-impl<T: Sync> SourceCleanup for HashSetRefSourceDescriptor<'_, T> {
+impl<T: Sync, A: Allocator> SourceCleanup for HashSetRefSourceDescriptor<'_, T, A> {
     const NEEDS_CLEANUP: bool = false;
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -41,7 +46,7 @@ impl<T: Sync> SourceCleanup for HashSetRefSourceDescriptor<'_, T> {
     }
 }
 
-impl<'data, T: Sync> SourceDescriptor for HashSetRefSourceDescriptor<'data, T> {
+impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescriptor<'data, T, A> {
     type Item = Option<&'data T>;
 
     fn len(&self) -> usize {
@@ -62,9 +67,12 @@ impl<'data, T: Sync> SourceDescriptor for HashSetRefSourceDescriptor<'data, T> {
     }
 }
 
-impl<'data, K: Sync + 'data, V: Sync + 'data> IntoParallelRefSource<'data> for HashMap<K, V> {
+// HashMap.par_iter()
+impl<'data, K: Sync + 'data, V: Sync + 'data, S: 'data, A: Allocator + Sync + 'data>
+    IntoParallelRefSource<'data> for HashMap<K, V, S, A>
+{
     type Item = Option<&'data (K, V)>;
-    type Source = HashMapRefParallelSource<'data, K, V>;
+    type Source = HashMapRefParallelSource<'data, K, V, S, A>;
 
     fn par_iter(&'data self) -> Self::Source {
         HashMapRefParallelSource { hash_map: self }
@@ -72,11 +80,13 @@ impl<'data, K: Sync + 'data, V: Sync + 'data> IntoParallelRefSource<'data> for H
 }
 
 #[must_use = "iterator adaptors are lazy"]
-pub struct HashMapRefParallelSource<'data, K, V> {
-    hash_map: &'data HashMap<K, V>,
+pub struct HashMapRefParallelSource<'data, K, V, S, A: Allocator> {
+    hash_map: &'data HashMap<K, V, S, A>,
 }
 
-impl<'data, K: Sync, V: Sync> ParallelSource for HashMapRefParallelSource<'data, K, V> {
+impl<'data, K: Sync, V: Sync, S, A: Allocator + Sync> ParallelSource
+    for HashMapRefParallelSource<'data, K, V, S, A>
+{
     type Item = Option<&'data (K, V)>;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
@@ -86,11 +96,11 @@ impl<'data, K: Sync, V: Sync> ParallelSource for HashMapRefParallelSource<'data,
     }
 }
 
-struct HashMapRefSourceDescriptor<'data, K: Sync, V: Sync> {
-    table: &'data RawTable<(K, V)>,
+struct HashMapRefSourceDescriptor<'data, K: Sync, V: Sync, A: Allocator> {
+    table: &'data RawTable<(K, V), A>,
 }
 
-impl<K: Sync, V: Sync> SourceCleanup for HashMapRefSourceDescriptor<'_, K, V> {
+impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescriptor<'_, K, V, A> {
     const NEEDS_CLEANUP: bool = false;
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -98,7 +108,9 @@ impl<K: Sync, V: Sync> SourceCleanup for HashMapRefSourceDescriptor<'_, K, V> {
     }
 }
 
-impl<'data, K: Sync, V: Sync> SourceDescriptor for HashMapRefSourceDescriptor<'data, K, V> {
+impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
+    for HashMapRefSourceDescriptor<'data, K, V, A>
+{
     type Item = Option<&'data (K, V)>;
 
     fn len(&self) -> usize {
@@ -118,12 +130,13 @@ impl<'data, K: Sync, V: Sync> SourceDescriptor for HashMapRefSourceDescriptor<'d
     }
 }
 
+// HashMap.par_iter_mut()
 // TODO: Remove Sync requirement on V.
-impl<'data, K: Sync + 'data, V: Send + Sync + 'data> IntoParallelRefMutSource<'data>
-    for HashMap<K, V>
+impl<'data, K: Sync + 'data, V: Send + Sync + 'data, S: 'data, A: Allocator + Sync + 'data>
+    IntoParallelRefMutSource<'data> for HashMap<K, V, S, A>
 {
     type Item = Option<(&'data K, &'data mut V)>;
-    type Source = HashMapRefMutParallelSource<'data, K, V>;
+    type Source = HashMapRefMutParallelSource<'data, K, V, S, A>;
 
     fn par_iter_mut(&'data mut self) -> Self::Source {
         HashMapRefMutParallelSource { hash_map: self }
@@ -131,11 +144,13 @@ impl<'data, K: Sync + 'data, V: Send + Sync + 'data> IntoParallelRefMutSource<'d
 }
 
 #[must_use = "iterator adaptors are lazy"]
-pub struct HashMapRefMutParallelSource<'data, K, V> {
-    hash_map: &'data mut HashMap<K, V>,
+pub struct HashMapRefMutParallelSource<'data, K, V, S, A: Allocator> {
+    hash_map: &'data mut HashMap<K, V, S, A>,
 }
 
-impl<'data, K: Sync, V: Send + Sync> ParallelSource for HashMapRefMutParallelSource<'data, K, V> {
+impl<'data, K: Sync, V: Send + Sync, S, A: Allocator + Sync> ParallelSource
+    for HashMapRefMutParallelSource<'data, K, V, S, A>
+{
     type Item = Option<(&'data K, &'data mut V)>;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
@@ -145,11 +160,13 @@ impl<'data, K: Sync, V: Send + Sync> ParallelSource for HashMapRefMutParallelSou
     }
 }
 
-struct HashMapRefMutSourceDescriptor<'data, K: Sync, V: Send + Sync> {
-    table: &'data RawTable<(K, V)>,
+struct HashMapRefMutSourceDescriptor<'data, K: Sync, V: Send + Sync, A: Allocator> {
+    table: &'data RawTable<(K, V), A>,
 }
 
-impl<K: Sync, V: Send + Sync> SourceCleanup for HashMapRefMutSourceDescriptor<'_, K, V> {
+impl<K: Sync, V: Send + Sync, A: Allocator> SourceCleanup
+    for HashMapRefMutSourceDescriptor<'_, K, V, A>
+{
     const NEEDS_CLEANUP: bool = false;
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -157,8 +174,8 @@ impl<K: Sync, V: Send + Sync> SourceCleanup for HashMapRefMutSourceDescriptor<'_
     }
 }
 
-impl<'data, K: Sync, V: Send + Sync> SourceDescriptor
-    for HashMapRefMutSourceDescriptor<'data, K, V>
+impl<'data, K: Sync, V: Send + Sync, A: Allocator> SourceDescriptor
+    for HashMapRefMutSourceDescriptor<'data, K, V, A>
 {
     type Item = Option<(&'data K, &'data mut V)>;
 
