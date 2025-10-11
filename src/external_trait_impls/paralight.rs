@@ -54,11 +54,13 @@ impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescript
     }
 
     unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+        debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
         if full {
             // SAFETY: TODO
             let bucket = unsafe { self.table.bucket(index) };
+            // SAFETY: TODO
             let (t, ()) = unsafe { bucket.as_ref() };
             Some(t)
         } else {
@@ -118,11 +120,13 @@ impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
     }
 
     unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+        debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
         if full {
             // SAFETY: TODO
             let bucket = unsafe { self.table.bucket(index) };
+            // SAFETY: TODO
             unsafe { Some(bucket.as_ref()) }
         } else {
             None
@@ -184,6 +188,7 @@ impl<'data, K: Sync, V: Send + Sync, A: Allocator> SourceDescriptor
     }
 
     unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+        debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
         if full {
