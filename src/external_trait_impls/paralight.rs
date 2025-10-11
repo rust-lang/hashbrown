@@ -390,17 +390,17 @@ mod test {
 
     #[test]
     fn test_set_par_iter() {
-        let mut set = HashSet::new();
-        for i in 1..=42 {
-            set.insert(Box::new(i));
-        }
-
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
             range_strategy: RangeStrategy::WorkStealing,
             cpu_pinning: CpuPinningPolicy::No,
         }
         .build();
+
+        let mut set = HashSet::new();
+        for i in 1..=42 {
+            set.insert(Box::new(i));
+        }
 
         let sum = set
             .par_iter()
@@ -412,17 +412,17 @@ mod test {
 
     #[test]
     fn test_set_into_par_iter() {
-        let mut set = HashSet::new();
-        for i in 1..=42 {
-            set.insert(Box::new(i));
-        }
-
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
             range_strategy: RangeStrategy::WorkStealing,
             cpu_pinning: CpuPinningPolicy::No,
         }
         .build();
+
+        let mut set = HashSet::new();
+        for i in 1..=42 {
+            set.insert(Box::new(i));
+        }
 
         let sum = set
             .into_par_iter()
@@ -434,17 +434,17 @@ mod test {
 
     #[test]
     fn test_map_par_iter() {
-        let mut map = HashMap::new();
-        for i in 1..=42 {
-            map.insert(Box::new(i), Box::new(i * i));
-        }
-
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
             range_strategy: RangeStrategy::WorkStealing,
             cpu_pinning: CpuPinningPolicy::No,
         }
         .build();
+
+        let mut map = HashMap::new();
+        for i in 1..=42 {
+            map.insert(Box::new(i), Box::new(i * i));
+        }
 
         map.par_iter()
             .with_thread_pool(&mut thread_pool)
@@ -454,17 +454,17 @@ mod test {
 
     #[test]
     fn test_map_par_iter_mut() {
-        let mut map = HashMap::new();
-        for i in 1..=42 {
-            map.insert(Box::new(i), Box::new(i));
-        }
-
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
             range_strategy: RangeStrategy::WorkStealing,
             cpu_pinning: CpuPinningPolicy::No,
         }
         .build();
+
+        let mut map = HashMap::new();
+        for i in 1..=42 {
+            map.insert(Box::new(i), Box::new(i));
+        }
 
         map.par_iter_mut()
             .with_thread_pool(&mut thread_pool)
@@ -478,17 +478,17 @@ mod test {
 
     #[test]
     fn test_map_into_par_iter() {
-        let mut map = HashMap::new();
-        for i in 1..=42 {
-            map.insert(Box::new(i), Box::new(i * i));
-        }
-
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
             range_strategy: RangeStrategy::WorkStealing,
             cpu_pinning: CpuPinningPolicy::No,
         }
         .build();
+
+        let mut map = HashMap::new();
+        for i in 1..=42 {
+            map.insert(Box::new(i), Box::new(i * i));
+        }
 
         map.into_par_iter()
             .with_thread_pool(&mut thread_pool)
