@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1](https://github.com/rust-lang/hashbrown/compare/v0.16.0...v0.16.1) - 2025-11-09
+
+### Added
+
+- recognize and use over sized allocations
+
+### Fixed
+
+- fixes #651 -- use rayon's optimized collect_vec_list
+
+### Other
+
+- Fix README doctests
+- minor improvement for docs
+- Remove InsertSlot
+- Merge pull request #523 from morrisonlevi/oversized-allocations
+- fix return
+- address feedback from code review
+- fast-path for not oversized allocations
+- add with_capacity benchmark
+- Merge pull request #649 from DaniPopes/serde_core
+- Depend on `serde_core` instead of `serde`
+- Merge pull request #645 from Amanieu/0.16-changelog
+- Update changelog for 0.16
+
 - The `get_many_mut` family of methods have been renamed to `get_disjoint_mut`
   to match the standard library. The old names are still present for now, but
   deprecated.
