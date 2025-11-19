@@ -4086,6 +4086,7 @@ impl<T, A: Allocator> FusedIterator for RawDrain<'_, T, A> {}
 ///   change in the future.
 pub struct RawIterHash<T> {
     inner: RawIterHashInner,
+    items: usize,
     _marker: PhantomData<T>,
 }
 
@@ -4114,6 +4115,7 @@ impl<T> RawIterHash<T> {
     unsafe fn new<A: Allocator>(table: &RawTable<T, A>, hash: u64) -> Self {
         RawIterHash {
             inner: RawIterHashInner::new(&table.table, hash),
+            items: table.table.items,
             _marker: PhantomData,
         }
     }
@@ -4124,6 +4126,7 @@ impl<T> Clone for RawIterHash<T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            items: self.items,
             _marker: PhantomData,
         }
     }
@@ -4135,6 +4138,7 @@ impl<T> Default for RawIterHash<T> {
         Self {
             // SAFETY: Because the table is static, it always outlives the iter.
             inner: unsafe { RawIterHashInner::new(&RawTableInner::NEW, 0) },
+            items: 0,
             _marker: PhantomData,
         }
     }
@@ -4162,17 +4166,33 @@ impl RawIterHashInner {
 impl<T> Iterator for RawIterHash<T> {
     type Item = Bucket<T>;
 
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.items))
+    }
+
     fn next(&mut self) -> Option<Bucket<T>> {
+        // Inner iterator iterates over buckets
+        // so it can do unnecessary work if we already yielded all items.
+        if self.items == 0 {
+            return None;
+        }
+
         unsafe {
             match self.inner.next() {
                 Some(index) => {
                     // Can't use `RawTable::bucket` here as we don't have
                     // an actual `RawTable` reference to use.
                     debug_assert!(index <= self.inner.bucket_mask);
+
+                    self.items -= 1;
+
                     let bucket = Bucket::from_base_index(self.inner.ctrl.cast(), index);
                     Some(bucket)
                 }
-                None => None,
+                None => {
+                    self.items = 0;
+                    None
+                }
             }
         }
     }

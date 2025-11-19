@@ -74,6 +74,7 @@ mod util;
 
 mod external_trait_impls;
 mod map;
+mod multi_map;
 #[cfg(feature = "raw-entry")]
 mod raw_entry;
 #[cfg(feature = "rustc-internal-api")]
@@ -102,6 +103,10 @@ pub mod hash_map {
     pub mod rayon {
         pub use crate::external_trait_impls::rayon::map::*;
     }
+}
+pub mod hash_multi_map {
+    //! A hash map implemented with quadratic probing and SIMD lookup.
+    pub use crate::multi_map::*;
 }
 pub mod hash_set {
     //! A hash set implemented as a `HashMap` where the value is `()`.
@@ -133,6 +138,7 @@ pub mod hash_table {
 }
 
 pub use crate::map::HashMap;
+pub use crate::multi_map::HashMultiMap;
 pub use crate::set::HashSet;
 pub use crate::table::HashTable;
 
