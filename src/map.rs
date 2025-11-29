@@ -489,7 +489,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// Returns a reference to the underlying allocator.
     #[inline]
     pub fn allocator(&self) -> &A {
-        self.table.raw.allocator()
+        self.table.allocator()
     }
 
     /// Creates an empty `HashMap` which will use the given hash builder to hash
@@ -595,7 +595,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn capacity(&self) -> usize {
-        self.table.raw.capacity()
+        self.table.capacity()
     }
 
     /// An iterator visiting all keys in arbitrary order.
@@ -788,7 +788,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg(test)]
     #[cfg_attr(feature = "inline-more", inline)]
     fn raw_capacity(&self) -> usize {
-        self.table.raw.num_buckets()
+        self.table.num_buckets()
     }
 
     /// Returns the number of elements in the map.
@@ -805,7 +805,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn len(&self) -> usize {
-        self.table.raw.len()
+        self.table.len()
     }
 
     /// Returns `true` if the map contains no elements.
@@ -897,15 +897,8 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     where
         F: FnMut(&K, &mut V) -> bool,
     {
-        // Here we only use `iter` as a temporary, preventing use-after-free
-        unsafe {
-            for item in self.table.raw.iter() {
-                let &mut (ref key, ref mut value) = item.as_mut();
-                if !f(key, value) {
-                    self.table.raw.erase(item);
-                }
-            }
-        }
+        self.table
+            .retain(move |&mut (ref key, ref mut val)| f(key, val))
     }
 
     /// Drains elements which are true under the given predicate,
@@ -986,7 +979,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn clear(&mut self) {
-        self.table.raw.clear();
+        self.table.clear();
     }
 
     /// Creates a consuming iterator visiting all the keys in arbitrary order.
@@ -1285,7 +1278,7 @@ where
             None
         } else {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.raw.get(hash, equivalent_key(k)) {
+            match self.table.find(hash, equivalent_key(k)) {
                 Some((_, v)) => Some(v),
                 None => None,
             }
@@ -1318,7 +1311,7 @@ where
             None
         } else {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.raw.get(hash, equivalent_key(k)) {
+            match self.table.find(hash, equivalent_key(k)) {
                 Some((key, value)) => Some((key, value)),
                 None => None,
             }
@@ -1355,7 +1348,7 @@ where
             None
         } else {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.raw.get_mut(hash, equivalent_key(k)) {
+            match self.table.find_mut(hash, equivalent_key(k)) {
                 Some(&mut (ref key, ref mut value)) => Some((key, value)),
                 None => None,
             }
@@ -1421,7 +1414,7 @@ where
             None
         } else {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.raw.get_mut(hash, equivalent_key(k)) {
+            match self.table.find_mut(hash, equivalent_key(k)) {
                 Some(&mut (_, ref mut v)) => Some(v),
                 None => None,
             }
@@ -2006,7 +1999,7 @@ where
     /// primarily used for memory profiling.
     #[inline]
     pub fn allocation_size(&self) -> usize {
-        self.table.raw.allocation_size()
+        self.table.allocation_size()
     }
 }
 
