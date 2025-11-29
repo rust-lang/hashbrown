@@ -408,8 +408,8 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         ExtractIf {
             f,
             inner: RawExtractIf {
-                iter: unsafe { self.map.table.iter() },
-                table: &mut self.map.table,
+                iter: unsafe { self.map.table.raw.iter() },
+                table: &mut self.map.table.raw,
             },
         }
     }
@@ -1139,7 +1139,7 @@ where
             Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().0 }, value)),
             Err(index) => {
                 unsafe {
-                    self.map.table.insert_at_index(hash, index, (value, ()));
+                    self.map.table.raw.insert_at_index(hash, index, (value, ()));
                 }
                 None
             }
