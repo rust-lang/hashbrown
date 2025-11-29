@@ -1073,6 +1073,24 @@ where
         }
     }
 
+    /// A version of [`iter_mut`](Self::iter_mut) which is variant over
+    /// elements, and thus unsafe.
+    ///
+    /// See the documentation for [`IterUnsafeMut`] for more information on how
+    /// to correctly use this.
+    ///
+    /// # Safety
+    ///
+    /// Any part of the returned elements which is mutated must be made invariant.
+    /// See the documentation for [`IterUnsafeMut`] for an example and further
+    /// explanation.
+    pub unsafe fn iter_unsafe_mut(&mut self) -> IterUnsafeMut<'_, T> {
+        IterUnsafeMut {
+            inner: unsafe { self.raw.iter() },
+            marker: PhantomData,
+        }
+    }
+
     /// An iterator producing the `usize` indices of all occupied buckets.
     ///
     /// The order in which the iterator yields indices is unspecified
@@ -2510,6 +2528,16 @@ pub struct IterMut<'a, T> {
     inner: RawIter<T>,
     marker: PhantomData<&'a mut T>,
 }
+impl<'a, T> IterMut<'a, T> {
+    /// Returns a iterator of references over the remaining items.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.clone(),
+            marker: PhantomData,
+        }
+    }
+}
 
 impl<T> Default for IterMut<'_, T> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -2558,12 +2586,113 @@ where
     T: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(Iter {
-                inner: self.inner.clone(),
-                marker: PhantomData,
-            })
-            .finish()
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// An unsafe version of [`IterMut`] which is *variant* over `T`.
+///
+/// This is used for implementations of mutable iterators where mutation is only
+/// allowed on part of the value in the table. For example, a mutable iterator
+/// for a map may return an immutable key alongside a mutable value, even though
+/// these are both stored inside the table.
+///
+/// # Safety
+///
+/// In order to correctly use this iterator, it should be wrapped in a safe
+/// iterator struct with the appropriate [`PhantomData`] marker to indicate the
+/// correct variance.
+///
+/// For example, a [`hash_map::IterMut`] implementation correctly returning
+/// a variant key, and an invariant value:
+///
+/// [`hash_map::IterMut`]: crate::hash_map::IterMut
+///
+/// ```rust
+/// use core::marker::PhantomData;
+/// use hashbrown::hash_table;
+///
+/// pub struct IterMut<'a, K, V> {
+///     inner: hash_table::IterMut<'a, (K, V)>,
+///     // Variant over keys, invariant over values
+///     marker: PhantomData<(&'a K, &'a mut V)>,
+/// }
+/// impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+///     // Immutable keys, mutable values
+///     type Item = (&'a K, &'a mut V);
+///
+///     fn next(&mut self) -> Option<Self::Item> {
+///         // Even though the key is mutably borrowed here, this is sound
+///         // because we never actually mutate the key before yielding the
+///         // immutable reference
+///         let (ref key, ref mut val) = self.inner.next()?;
+///         Some((key, val))
+///     }
+/// }
+/// ```
+pub struct IterUnsafeMut<'a, T> {
+    inner: RawIter<T>,
+    marker: PhantomData<&'a T>,
+}
+impl<'a, T> IterUnsafeMut<'a, T> {
+    /// Returns a iterator of references over the remaining items.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Default for IterUnsafeMut<'_, T> {
+    #[cfg_attr(feature = "inline-more", inline)]
+    fn default() -> Self {
+        IterUnsafeMut {
+            inner: Default::default(),
+            marker: PhantomData,
+        }
+    }
+}
+impl<'a, T> Iterator for IterUnsafeMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Avoid `Option::map` because it bloats LLVM IR.
+        match self.inner.next() {
+            Some(bucket) => Some(unsafe { bucket.as_mut() }),
+            None => None,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.inner
+            .fold(init, |acc, bucket| unsafe { f(acc, bucket.as_mut()) })
+    }
+}
+
+impl<T> ExactSizeIterator for IterUnsafeMut<'_, T> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<T> FusedIterator for IterUnsafeMut<'_, T> {}
+
+impl<T> fmt::Debug for IterUnsafeMut<'_, T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -2817,6 +2946,19 @@ where
 {
     inner: RawIntoIter<T, A>,
 }
+impl<T, A> IntoIter<T, A>
+where
+    A: Allocator,
+{
+    /// Returns a iterator of references over the remaining items.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.iter(),
+            marker: PhantomData,
+        }
+    }
+}
 
 impl<T, A: Allocator> Default for IntoIter<T, A> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -2867,12 +3009,7 @@ where
     A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(Iter {
-                inner: self.inner.iter(),
-                marker: PhantomData,
-            })
-            .finish()
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -2885,6 +3022,16 @@ where
 /// [`drain`]: struct.HashTable.html#method.drain
 pub struct Drain<'a, T, A: Allocator = Global> {
     inner: RawDrain<'a, T, A>,
+}
+impl<'a, T, A: Allocator> Drain<'a, T, A> {
+    /// Returns a iterator of references over the remaining items.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.inner.iter(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<T, A: Allocator> Iterator for Drain<'_, T, A> {
@@ -2917,12 +3064,7 @@ impl<T, A: Allocator> FusedIterator for Drain<'_, T, A> {}
 
 impl<T: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(Iter {
-                inner: self.inner.iter(),
-                marker: PhantomData,
-            })
-            .finish()
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
