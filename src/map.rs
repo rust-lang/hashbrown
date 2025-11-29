@@ -1,5 +1,5 @@
-use crate::raw::{Allocator, Bucket, Global, RawDrain, RawExtractIf, RawIntoIter, RawIter};
-use crate::{DefaultHashBuilder, Equivalent, HashTable, TryReserveError};
+use crate::raw::{Allocator, Bucket, Global, RawExtractIf};
+use crate::{table, DefaultHashBuilder, Equivalent, HashTable, TryReserveError};
 use ::alloc::borrow::ToOwned;
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
@@ -751,12 +751,8 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter(&self) -> Iter<'_, K, V> {
-        // Here we tie the lifetime of self to the iter.
-        unsafe {
-            Iter {
-                inner: self.table.raw.iter(),
-                marker: PhantomData,
-            }
+        Iter {
+            inner: self.table.iter(),
         }
     }
 
@@ -796,12 +792,9 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        // Here we tie the lifetime of self to the iter.
-        unsafe {
-            IterMut {
-                inner: self.table.raw.iter(),
-                marker: PhantomData,
-            }
+        IterMut {
+            inner: self.table.unsafe_iter(),
+            marker: PhantomData,
         }
     }
 
@@ -886,7 +879,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn drain(&mut self) -> Drain<'_, K, V, A> {
         Drain {
-            inner: self.table.raw.drain(),
+            inner: self.table.drain(),
         }
     }
 
@@ -2197,8 +2190,7 @@ where
 /// assert_eq!(iter.next(), None);
 /// ```
 pub struct Iter<'a, K, V> {
-    inner: RawIter<(K, V)>,
-    marker: PhantomData<(&'a K, &'a V)>,
+    inner: table::Iter<'a, (K, V)>,
 }
 
 // FIXME(#26925) Remove in favor of `#[derive(Clone)]`
@@ -2207,7 +2199,6 @@ impl<K, V> Clone for Iter<'_, K, V> {
     fn clone(&self) -> Self {
         Iter {
             inner: self.inner.clone(),
-            marker: PhantomData,
         }
     }
 }
@@ -2246,7 +2237,7 @@ impl<K: Debug, V: Debug> fmt::Debug for Iter<'_, K, V> {
 /// assert_eq!(map.get(&2).unwrap(), &"Two Mississippi".to_owned());
 /// ```
 pub struct IterMut<'a, K, V> {
-    inner: RawIter<(K, V)>,
+    inner: table::UnsafeIter<'a, (K, V)>,
     // To ensure invariance with respect to V
     marker: PhantomData<(&'a K, &'a mut V)>,
 }
@@ -2261,8 +2252,7 @@ impl<K, V> IterMut<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
-            inner: self.inner.clone(),
-            marker: PhantomData,
+            inner: self.inner.iter(),
         }
     }
 }
@@ -2298,7 +2288,7 @@ impl<K, V> IterMut<'_, K, V> {
 /// assert_eq!(iter.next(), None);
 /// ```
 pub struct IntoIter<K, V, A: Allocator = Global> {
-    inner: RawIntoIter<(K, V), A>,
+    inner: table::IntoIter<(K, V), A>,
 }
 
 impl<K, V, A: Allocator> IntoIter<K, V, A> {
@@ -2307,7 +2297,6 @@ impl<K, V, A: Allocator> IntoIter<K, V, A> {
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             inner: self.inner.iter(),
-            marker: PhantomData,
         }
     }
 }
@@ -2594,7 +2583,7 @@ impl<K, V: Debug> fmt::Debug for Values<'_, K, V> {
 /// assert_eq!(drain_iter.next(), None);
 /// ```
 pub struct Drain<'a, K, V, A: Allocator = Global> {
-    inner: RawDrain<'a, (K, V), A>,
+    inner: table::Drain<'a, (K, V), A>,
 }
 
 impl<K, V, A: Allocator> Drain<'_, K, V, A> {
@@ -2603,7 +2592,6 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             inner: self.inner.iter(),
-            marker: PhantomData,
         }
     }
 }
@@ -3189,7 +3177,7 @@ impl<K, V, S, A: Allocator> IntoIterator for HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn into_iter(self) -> IntoIter<K, V, A> {
         IntoIter {
-            inner: self.table.raw.into_iter(),
+            inner: self.table.into_iter(),
         }
     }
 }
@@ -3199,21 +3187,17 @@ impl<K, V> Default for Iter<'_, K, V> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
-            marker: PhantomData,
         }
     }
 }
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
+impl<'a, K: 'a, V: 'a> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<(&'a K, &'a V)> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.inner.next() {
-            Some(x) => unsafe {
-                let r = x.as_ref();
-                Some((&r.0, &r.1))
-            },
+            Some(x) => Some((&x.0, &x.1)),
             None => None,
         }
     }
@@ -3227,20 +3211,17 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
         Self: Sized,
         F: FnMut(B, Self::Item) -> B,
     {
-        self.inner.fold(init, |acc, x| unsafe {
-            let (k, v) = x.as_ref();
-            f(acc, (k, v))
-        })
+        self.inner.fold(init, |acc, (k, v)| f(acc, (k, v)))
     }
 }
-impl<K, V> ExactSizeIterator for Iter<'_, K, V> {
+impl<'a, K: 'a, V: 'a> ExactSizeIterator for Iter<'a, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<K, V> FusedIterator for Iter<'_, K, V> {}
+impl<'a, K: 'a, V: 'a> FusedIterator for Iter<'a, K, V> {}
 
 impl<K, V> Default for IterMut<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -3258,10 +3239,12 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.inner.next() {
-            Some(x) => unsafe {
-                let r = x.as_mut();
-                Some((&r.0, &mut r.1))
-            },
+            Some(mut x) => {
+                // SAFETY: We match the lifetime of the original iterator
+                // with the correct variance provided by PhantomData.
+                let (ref k, ref mut v) = unsafe { x.as_mut() };
+                Some((k, v))
+            }
             None => None,
         }
     }
@@ -3275,8 +3258,10 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
         Self: Sized,
         F: FnMut(B, Self::Item) -> B,
     {
-        self.inner.fold(init, |acc, x| unsafe {
-            let (k, v) = x.as_mut();
+        self.inner.fold(init, |acc, mut x| {
+            // SAFETY: We match the lifetime of the original iterator
+            // with the correct variance provided by PhantomData.
+            let (ref k, ref mut v) = unsafe { x.as_mut() };
             f(acc, (k, v))
         })
     }
