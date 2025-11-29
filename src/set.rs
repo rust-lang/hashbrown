@@ -401,8 +401,8 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         ExtractIf {
             f,
             inner: RawExtractIf {
-                iter: unsafe { self.map.table.iter() },
-                table: &mut self.map.table,
+                iter: unsafe { self.map.table.raw.iter() },
+                table: &mut self.map.table.raw,
             },
         }
     }
