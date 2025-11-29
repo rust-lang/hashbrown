@@ -593,14 +593,14 @@ impl<'a, K, V, S, A: Allocator> RawEntryBuilderMut<'a, K, V, S, A> {
     where
         for<'b> F: FnMut(&'b K) -> bool,
     {
-        match self.map.table.find(hash, |(k, _)| is_match(k)) {
+        match self.map.table.raw.find(hash, |(k, _)| is_match(k)) {
             Some(elem) => RawEntryMut::Occupied(RawOccupiedEntryMut {
                 elem,
-                table: &mut self.map.table,
+                table: &mut self.map.table.raw,
                 hash_builder: &self.map.hash_builder,
             }),
             None => RawEntryMut::Vacant(RawVacantEntryMut {
-                table: &mut self.map.table,
+                table: &mut self.map.table.raw,
                 hash_builder: &self.map.hash_builder,
             }),
         }
@@ -662,7 +662,7 @@ impl<'a, K, V, S, A: Allocator> RawEntryBuilder<'a, K, V, S, A> {
     where
         F: FnMut(&K) -> bool,
     {
-        match self.map.table.get(hash, |(k, _)| is_match(k)) {
+        match self.map.table.raw.get(hash, |(k, _)| is_match(k)) {
             Some((key, value)) => Some((key, value)),
             None => None,
         }
