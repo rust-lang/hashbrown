@@ -408,8 +408,8 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         ExtractIf {
             f,
             inner: RawExtractIf {
-                iter: unsafe { self.map.table.iter() },
-                table: &mut self.map.table,
+                iter: unsafe { self.map.table.raw.iter() },
+                table: &mut self.map.table.raw,
             },
         }
     }
@@ -915,7 +915,7 @@ where
         let hash = make_hash(&self.map.hash_builder, &value);
         let bucket = match self.map.find_or_find_insert_index(hash, &value) {
             Ok(bucket) => bucket,
-            Err(index) => unsafe { self.map.table.insert_at_index(hash, index, (value, ())) },
+            Err(index) => unsafe { self.map.table.raw.insert_at_index(hash, index, (value, ())) },
         };
         unsafe { &bucket.as_ref().0 }
     }
@@ -957,7 +957,7 @@ where
             Err(index) => {
                 let new = f(value);
                 assert!(value.equivalent(&new), "new value is not equivalent");
-                unsafe { self.map.table.insert_at_index(hash, index, (new, ())) }
+                unsafe { self.map.table.raw.insert_at_index(hash, index, (new, ())) }
             }
         };
         unsafe { &bucket.as_ref().0 }
@@ -1143,7 +1143,7 @@ where
             Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().0 }, value)),
             Err(index) => {
                 unsafe {
-                    self.map.table.insert_at_index(hash, index, (value, ()));
+                    self.map.table.raw.insert_at_index(hash, index, (value, ()));
                 }
                 None
             }
@@ -1588,11 +1588,12 @@ where
             let hash = make_hash(&self.map.hash_builder, item);
             match self.map.find_or_find_insert_index(hash, item) {
                 Ok(bucket) => unsafe {
-                    self.map.table.remove(bucket);
+                    self.map.table.raw.remove(bucket);
                 },
                 Err(index) => unsafe {
                     self.map
                         .table
+                        .raw
                         .insert_at_index(hash, index, (item.clone(), ()));
                 },
             }
