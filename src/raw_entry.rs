@@ -1365,11 +1365,15 @@ impl<'a, K, V, S, A: Allocator> RawVacantEntryMut<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let &mut (ref mut k, ref mut v) = self.table.insert_entry(
-            hash,
-            (key, value),
-            make_hasher::<_, V, S>(self.hash_builder),
-        );
+        let &mut (ref mut k, ref mut v) = unsafe {
+            self.table
+                .insert(
+                    hash,
+                    (key, value),
+                    make_hasher::<_, V, S>(self.hash_builder),
+                )
+                .as_mut()
+        };
         (k, v)
     }
 
@@ -1420,9 +1424,11 @@ impl<'a, K, V, S, A: Allocator> RawVacantEntryMut<'a, K, V, S, A> {
     where
         H: Fn(&K) -> u64,
     {
-        let &mut (ref mut k, ref mut v) = self
-            .table
-            .insert_entry(hash, (key, value), |x| hasher(&x.0));
+        let &mut (ref mut k, ref mut v) = unsafe {
+            self.table
+                .insert(hash, (key, value), |x| hasher(&x.0))
+                .as_mut()
+        };
         (k, v)
     }
 
