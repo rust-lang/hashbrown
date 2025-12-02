@@ -1,5 +1,5 @@
 use crate::alloc::{Allocator, Global};
-use crate::raw::{Bucket, RawExtractIf};
+use crate::raw::RawExtractIf;
 use crate::table::{self, HashTable};
 use crate::{DefaultHashBuilder, Equivalent, TryReserveError};
 use core::borrow::Borrow;
@@ -1193,18 +1193,17 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S, A> {
         let hash = make_hash::<K, S>(&self.hash_builder, &key);
-        if let Some(elem) = self.table.raw.find(hash, equivalent_key(&key)) {
-            Entry::Occupied(OccupiedEntry {
-                hash,
-                elem,
-                table: self,
-            })
-        } else {
-            Entry::Vacant(VacantEntry {
-                hash,
+        let hasher = make_hasher(&self.hash_builder);
+        match self.table.entry(hash, equivalent_key(&key), hasher) {
+            table::Entry::Occupied(inner) => Entry::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
+            table::Entry::Vacant(inner) => Entry::Vacant(VacantEntry {
+                inner,
                 key,
-                table: self,
-            })
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -1231,18 +1230,17 @@ where
         Q: Hash + Equivalent<K> + ?Sized,
     {
         let hash = make_hash::<Q, S>(&self.hash_builder, key);
-        if let Some(elem) = self.table.raw.find(hash, equivalent_key(key)) {
-            EntryRef::Occupied(OccupiedEntry {
-                hash,
-                elem,
-                table: self,
-            })
-        } else {
-            EntryRef::Vacant(VacantEntryRef {
-                hash,
+        let hasher = make_hasher(&self.hash_builder);
+        match self.table.entry(hash, equivalent_key(key), hasher) {
+            table::Entry::Occupied(inner) => EntryRef::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
+            table::Entry::Vacant(inner) => EntryRef::Vacant(VacantEntryRef {
+                inner,
                 key,
-                table: self,
-            })
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -1791,19 +1789,10 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let hash = make_hash(&self.hash_builder, &k);
-        let equivalent = equivalent_key(&k);
-        let hasher = make_hasher(&self.hash_builder);
-        match self
-            .table
-            .raw
-            .find_or_find_insert_index(hash, equivalent, hasher)
-        {
-            Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().1 }, v)),
-            Err(index) => {
-                unsafe {
-                    self.table.raw.insert_at_index(hash, index, (k, v));
-                }
+        match self.entry(k) {
+            Entry::Occupied(mut entry) => Some(entry.insert(v)),
+            Entry::Vacant(entry) => {
+                entry.insert(v);
                 None
             }
         }
@@ -1869,11 +1858,10 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn insert_unique_unchecked(&mut self, k: K, v: V) -> (&K, &mut V) {
         let hash = make_hash::<K, S>(&self.hash_builder, &k);
-        let bucket =
+        let entry =
             self.table
-                .raw
-                .insert(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
-        let (k_ref, v_ref) = unsafe { bucket.as_mut() };
+                .insert_unique(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
+        let (k_ref, v_ref) = entry.into_mut();
         (k_ref, v_ref)
     }
 
@@ -2754,9 +2742,8 @@ impl<K: Debug, V: Debug, S, A: Allocator> Debug for Entry<'_, K, V, S, A> {
 /// assert_eq!(map.len(), 2);
 /// ```
 pub struct OccupiedEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator = Global> {
-    hash: u64,
-    elem: Bucket<(K, V)>,
-    table: &'a mut HashMap<K, V, S, A>,
+    inner: table::OccupiedEntry<'a, (K, V), A>,
+    marker: PhantomData<&'a mut S>,
 }
 
 unsafe impl<K, V, S, A> Send for OccupiedEntry<'_, K, V, S, A>
@@ -2814,9 +2801,9 @@ impl<K: Debug, V: Debug, S, A: Allocator> Debug for OccupiedEntry<'_, K, V, S, A
 /// assert!(map[&"b"] == 20 && map.len() == 2);
 /// ```
 pub struct VacantEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator = Global> {
-    hash: u64,
+    inner: table::VacantEntry<'a, (K, V), A>,
     key: K,
-    table: &'a mut HashMap<K, V, S, A>,
+    marker: PhantomData<&'a mut S>,
 }
 
 impl<K: Debug, V, S, A: Allocator> Debug for VacantEntry<'_, K, V, S, A> {
@@ -2952,9 +2939,9 @@ where
 /// assert!(map["b"] == 20 && map.len() == 2);
 /// ```
 pub struct VacantEntryRef<'map, 'key, K, Q: ?Sized, V, S, A: Allocator = Global> {
-    hash: u64,
+    inner: table::VacantEntry<'map, (K, V), A>,
     key: &'key Q,
-    table: &'map mut HashMap<K, V, S, A>,
+    marker: PhantomData<&'map mut S>,
 }
 
 impl<K, Q, V, S, A> Debug for VacantEntryRef<'_, '_, K, Q, V, S, A>
@@ -3767,7 +3754,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn key(&self) -> &K {
-        unsafe { &self.elem.as_ref().0 }
+        &self.inner.get().0
     }
 
     /// Replaces the key in the entry with a new one.
@@ -3858,7 +3845,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn replace_key_unchecked(&mut self, key: K) -> K {
-        mem::replace(unsafe { &mut self.elem.as_mut().0 }, key)
+        mem::replace(&mut self.inner.get_mut().0, key)
     }
 
     /// Take the ownership of the key and value from the map.
@@ -3887,7 +3874,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(self) -> (K, V) {
-        unsafe { self.table.table.raw.remove(self.elem).0 }
+        self.inner.remove().0
     }
 
     /// Gets a reference to the value in the entry.
@@ -3908,7 +3895,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get(&self) -> &V {
-        unsafe { &self.elem.as_ref().1 }
+        &self.inner.get().1
     }
 
     /// Gets a mutable reference to the value in the entry.
@@ -3940,7 +3927,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_mut(&mut self) -> &mut V {
-        unsafe { &mut self.elem.as_mut().1 }
+        &mut self.inner.get_mut().1
     }
 
     /// Converts the `OccupiedEntry` into a mutable reference to the value in the entry
@@ -3971,7 +3958,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_mut(self) -> &'a mut V {
-        unsafe { &mut self.elem.as_mut().1 }
+        &mut self.inner.into_mut().1
     }
 
     /// Converts the `OccupiedEntry` into a reference to the key and a
@@ -4006,7 +3993,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_entry(self) -> (&'a K, &'a mut V) {
-        let (key, val) = unsafe { self.elem.as_mut() };
+        let (key, val) = self.inner.into_mut();
         (key, val)
     }
 
@@ -4113,30 +4100,25 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     where
         F: FnOnce(&K, V) -> Option<V>,
     {
-        unsafe {
-            let mut spare_key = None;
+        let mut spare_key = None;
 
-            self.table
-                .table
-                .raw
-                .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    if let Some(new_value) = f(&key, value) {
-                        Some((key, new_value))
-                    } else {
-                        spare_key = Some(key);
-                        None
-                    }
-                });
-
-            if let Some(key) = spare_key {
-                Entry::Vacant(VacantEntry {
-                    hash: self.hash,
-                    key,
-                    table: self.table,
-                })
+        match self.inner.replace_entry_with(|(key, value)| {
+            if let Some(new_value) = f(&key, value) {
+                Some((key, new_value))
             } else {
-                Entry::Occupied(self)
+                spare_key = Some(key);
+                None
             }
+        }) {
+            table::Entry::Vacant(inner) => Entry::Vacant(VacantEntry {
+                inner,
+                key: unsafe { spare_key.unwrap_unchecked() },
+                marker: PhantomData,
+            }),
+            table::Entry::Occupied(inner) => Entry::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -4204,13 +4186,7 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let table = &mut self.table.table.raw;
-        let entry = table.insert_entry(
-            self.hash,
-            (self.key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
-        &mut entry.1
+        &mut self.inner.insert((self.key, value)).into_mut().1
     }
 
     /// Sets the value of the entry with the [`VacantEntry`]'s key,
@@ -4235,15 +4211,9 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let elem = self.table.table.raw.insert(
-            self.hash,
-            (self.key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((self.key, value)),
+            marker: PhantomData,
         }
     }
 
@@ -4557,13 +4527,7 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         Q: ToOwned<Owned = K>,
         S: BuildHasher,
     {
-        let table = &mut self.table.table.raw;
-        let entry = table.insert_entry(
-            self.hash,
-            (self.key.to_owned(), value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
-        &mut entry.1
+        &mut self.inner.insert((self.key.to_owned(), value)).into_mut().1
     }
 
     /// Sets the key and value of the entry and returns a mutable reference to
@@ -4672,15 +4636,9 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         Q: ToOwned<Owned = K>,
         S: BuildHasher,
     {
-        let elem = self.table.table.raw.insert(
-            self.hash,
-            (self.key.to_owned(), value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((self.key.to_owned(), value)),
+            marker: PhantomData,
         }
     }
 
@@ -4771,15 +4729,9 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         K: Hash,
         S: BuildHasher,
     {
-        let elem = self.table.table.raw.insert(
-            self.hash,
-            (key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((key, value)),
+            marker: PhantomData,
         }
     }
 
