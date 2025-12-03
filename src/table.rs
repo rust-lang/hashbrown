@@ -43,8 +43,7 @@ use crate::{
 ///
 /// [`HashMap`]: super::HashMap
 /// [`HashSet`]: super::HashSet
-/// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-/// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+/// [`Hash`]: core::hash::Hash
 pub struct HashTable<T, A = Global>
 where
     A: Allocator,
@@ -817,8 +816,7 @@ where
     /// in case of allocation error. Use [`try_reserve`](HashTable::try_reserve) instead
     /// if you want to handle memory allocation failure.
     ///
-    /// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html
-    /// [`abort`]: https://doc.rust-lang.org/alloc/alloc/fn.handle_alloc_error.html
+    /// [`abort`]: alloc::alloc::handle_alloc_error
     ///
     /// # Examples
     ///
@@ -1628,8 +1626,7 @@ where
 ///
 /// This `enum` is constructed from the [`entry`] method on [`HashTable`].
 ///
-/// [`HashTable`]: struct.HashTable.html
-/// [`entry`]: struct.HashTable.html#method.entry
+/// [`entry`]: HashTable::entry
 ///
 /// # Examples
 ///
@@ -1928,8 +1925,6 @@ where
 
 /// A view into an occupied entry in a `HashTable`.
 /// It is part of the [`Entry`] enum.
-///
-/// [`Entry`]: enum.Entry.html
 ///
 /// # Examples
 ///
@@ -2324,8 +2319,6 @@ where
 /// A view into a vacant entry in a `HashTable`.
 /// It is part of the [`Entry`] enum.
 ///
-/// [`Entry`]: enum.Entry.html
-///
 /// # Examples
 ///
 /// ```
@@ -2502,8 +2495,7 @@ where
 /// This `struct` is created by the [`iter`] method on [`HashTable`]. See its
 /// documentation for more.
 ///
-/// [`iter`]: struct.HashTable.html#method.iter
-/// [`HashTable`]: struct.HashTable.html
+/// [`iter`]: HashTable::iter
 pub struct Iter<'a, T> {
     inner: RawIter<T>,
     marker: PhantomData<&'a T>,
@@ -2575,8 +2567,7 @@ impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
 /// This `struct` is created by the [`iter_mut`] method on [`HashTable`]. See its
 /// documentation for more.
 ///
-/// [`iter_mut`]: struct.HashTable.html#method.iter_mut
-/// [`HashTable`]: struct.HashTable.html
+/// [`iter_mut`]: HashTable::iter_mut
 pub struct IterMut<'a, T> {
     inner: RawIter<T>,
     marker: PhantomData<&'a mut T>,
@@ -2706,8 +2697,7 @@ impl<T> fmt::Debug for IterBuckets<'_, T> {
 /// This `struct` is created by the [`iter_hash`] method on [`HashTable`]. See its
 /// documentation for more.
 ///
-/// [`iter_hash`]: struct.HashTable.html#method.iter_hash
-/// [`HashTable`]: struct.HashTable.html
+/// [`iter_hash`]: HashTable::iter_hash
 pub struct IterHash<'a, T> {
     inner: RawIterHash<T>,
     marker: PhantomData<&'a T>,
@@ -2772,8 +2762,7 @@ where
 /// This `struct` is created by the [`iter_hash_mut`] method on [`HashTable`]. See its
 /// documentation for more.
 ///
-/// [`iter_hash_mut`]: struct.HashTable.html#method.iter_hash_mut
-/// [`HashTable`]: struct.HashTable.html
+/// [`iter_hash_mut`]: HashTable::iter_hash_mut
 pub struct IterHashMut<'a, T> {
     inner: RawIterHash<T>,
     marker: PhantomData<&'a mut T>,
@@ -2879,9 +2868,7 @@ impl<T> fmt::Debug for IterHashBuckets<'_, T> {
 /// (provided by the [`IntoIterator`] trait). See its documentation for more.
 /// The table cannot be used after calling that method.
 ///
-/// [`into_iter`]: struct.HashTable.html#method.into_iter
-/// [`HashTable`]: struct.HashTable.html
-/// [`IntoIterator`]: https://doc.rust-lang.org/core/iter/trait.IntoIterator.html
+/// [`into_iter`]: HashTable::into_iter
 pub struct IntoIter<T, A = Global>
 where
     A: Allocator,
@@ -2952,8 +2939,7 @@ where
 /// This `struct` is created by the [`drain`] method on [`HashTable`].
 /// See its documentation for more.
 ///
-/// [`HashTable`]: struct.HashTable.html
-/// [`drain`]: struct.HashTable.html#method.drain
+/// [`drain`]: HashTable::drain
 pub struct Drain<'a, T, A: Allocator = Global> {
     inner: RawDrain<'a, T, A>,
 }

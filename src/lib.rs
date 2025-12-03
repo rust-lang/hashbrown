@@ -9,7 +9,7 @@
 //! [here]: https://github.com/abseil/abseil-cpp/blob/master/absl/container/internal/raw_hash_set.h
 //! [CppCon talk]: https://www.youtube.com/watch?v=ncHmEUmJZf4
 
-#![no_std]
+#![cfg_attr(not(doc), no_std)]
 #![cfg_attr(
     feature = "nightly",
     feature(
