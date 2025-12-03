@@ -1096,14 +1096,6 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
-    /// Inserts a new element into the table, and returns a mutable reference to it.
-    ///
-    /// This does not check if the given element already exists in the table.
-    #[cfg_attr(feature = "inline-more", inline)]
-    pub fn insert_entry(&mut self, hash: u64, value: T, hasher: impl Fn(&T) -> u64) -> &mut T {
-        unsafe { self.insert(hash, value, hasher).as_mut() }
-    }
-
     /// Inserts a new element into the table, without growing the table.
     ///
     /// There must be enough space in the table to insert the new element.
@@ -1124,14 +1116,14 @@ impl<T, A: Allocator> RawTable<T, A> {
         bucket
     }
 
-    /// Temporary removes a bucket, applying the given function to the removed
+    /// Temporarily removes a bucket, applying the given function to the removed
     /// element and optionally put back the returned value in the same bucket.
     ///
-    /// Returns `true` if the bucket still contains an element
+    /// Returns tag for bucket if the bucket is emptied out.
     ///
     /// This does not check if the given bucket is actually occupied.
     #[cfg_attr(feature = "inline-more", inline)]
-    pub unsafe fn replace_bucket_with<F>(&mut self, bucket: Bucket<T>, f: F) -> bool
+    pub(crate) unsafe fn replace_bucket_with<F>(&mut self, bucket: Bucket<T>, f: F) -> Option<Tag>
     where
         F: FnOnce(T) -> Option<T>,
     {
@@ -1145,9 +1137,9 @@ impl<T, A: Allocator> RawTable<T, A> {
             self.table.set_ctrl(index, old_ctrl);
             self.table.items += 1;
             self.bucket(index).write(new_item);
-            true
+            None
         } else {
-            false
+            Some(old_ctrl)
         }
     }
 

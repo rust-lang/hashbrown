@@ -600,14 +600,14 @@ impl<'a, K, V, S, A: Allocator> RawEntryBuilderMut<'a, K, V, S, A> {
     where
         for<'b> F: FnMut(&'b K) -> bool,
     {
-        match self.map.table.find(hash, |(k, _)| is_match(k)) {
+        match self.map.table.raw.find(hash, |(k, _)| is_match(k)) {
             Some(elem) => RawEntryMut::Occupied(RawOccupiedEntryMut {
                 elem,
-                table: &mut self.map.table,
+                table: &mut self.map.table.raw,
                 hash_builder: &self.map.hash_builder,
             }),
             None => RawEntryMut::Vacant(RawVacantEntryMut {
-                table: &mut self.map.table,
+                table: &mut self.map.table.raw,
                 hash_builder: &self.map.hash_builder,
             }),
         }
@@ -671,7 +671,7 @@ impl<'a, K, V, S, A: Allocator> RawEntryBuilder<'a, K, V, S, A> {
     where
         F: FnMut(&K) -> bool,
     {
-        match self.map.table.get(hash, |(k, _)| is_match(k)) {
+        match self.map.table.raw.get(hash, |(k, _)| is_match(k)) {
             Some((key, value)) => Some((key, value)),
             None => None,
         }
@@ -1282,13 +1282,13 @@ impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
         F: FnOnce(&K, V) -> Option<V>,
     {
         unsafe {
-            let still_occupied = self
+            let tag = self
                 .table
                 .replace_bucket_with(self.elem.clone(), |(key, value)| {
                     f(&key, value).map(|new_value| (key, new_value))
                 });
 
-            if still_occupied {
+            if tag.is_none() {
                 RawEntryMut::Occupied(self)
             } else {
                 RawEntryMut::Vacant(RawVacantEntryMut {
@@ -1365,11 +1365,15 @@ impl<'a, K, V, S, A: Allocator> RawVacantEntryMut<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let &mut (ref mut k, ref mut v) = self.table.insert_entry(
-            hash,
-            (key, value),
-            make_hasher::<_, V, S>(self.hash_builder),
-        );
+        let &mut (ref mut k, ref mut v) = unsafe {
+            self.table
+                .insert(
+                    hash,
+                    (key, value),
+                    make_hasher::<_, V, S>(self.hash_builder),
+                )
+                .as_mut()
+        };
         (k, v)
     }
 
@@ -1420,9 +1424,11 @@ impl<'a, K, V, S, A: Allocator> RawVacantEntryMut<'a, K, V, S, A> {
     where
         H: Fn(&K) -> u64,
     {
-        let &mut (ref mut k, ref mut v) = self
-            .table
-            .insert_entry(hash, (key, value), |x| hasher(&x.0));
+        let &mut (ref mut k, ref mut v) = unsafe {
+            self.table
+                .insert(hash, (key, value), |x| hasher(&x.0))
+                .as_mut()
+        };
         (k, v)
     }
 
