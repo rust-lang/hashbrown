@@ -133,14 +133,11 @@ pub use crate::raw_entry::*;
 /// The easiest way to use `HashMap` with a custom key type is to derive [`Eq`] and [`Hash`].
 /// We must also derive [`PartialEq`].
 ///
-/// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-/// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-/// [`PartialEq`]: https://doc.rust-lang.org/std/cmp/trait.PartialEq.html
-/// [`RefCell`]: https://doc.rust-lang.org/std/cell/struct.RefCell.html
-/// [`Cell`]: https://doc.rust-lang.org/std/cell/struct.Cell.html
-/// [`default`]: #method.default
-/// [`with_hasher`]: #method.with_hasher
-/// [`with_capacity_and_hasher`]: #method.with_capacity_and_hasher
+/// [`RefCell`]: std::cell::RefCell
+/// [`Cell`]: std::cell::Cell
+/// [`default`]: Default::default
+/// [`with_hasher`]: HashMap::with_hasher
+/// [`with_capacity_and_hasher`]: HashMap::with_capacity_and_hasher
 /// [`fnv`]: https://crates.io/crates/fnv
 /// [`foldhash`]: https://crates.io/crates/foldhash
 ///
@@ -270,12 +267,11 @@ impl<K, V> HashMap<K, V, DefaultHashBuilder> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`], for example with
     /// [`with_hasher`](HashMap::with_hasher) method.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -300,12 +296,11 @@ impl<K, V> HashMap<K, V, DefaultHashBuilder> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`], for example with
     /// [`with_capacity_and_hasher`](HashMap::with_capacity_and_hasher) method.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -333,12 +328,11 @@ impl<K, V, A: Allocator> HashMap<K, V, DefaultHashBuilder, A> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`], for example with
     /// [`with_hasher_in`](HashMap::with_hasher_in) method.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -377,12 +371,11 @@ impl<K, V, A: Allocator> HashMap<K, V, DefaultHashBuilder, A> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`], for example with
     /// [`with_capacity_and_hasher_in`](HashMap::with_capacity_and_hasher_in) method.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -429,15 +422,13 @@ impl<K, V, S> HashMap<K, V, S> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`].
     ///
     /// The `hash_builder` passed should implement the [`BuildHasher`] trait for
     /// the `HashMap` to be useful, see its documentation for details.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
-    /// [`BuildHasher`]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
     ///
     /// # Examples
     ///
@@ -472,15 +463,13 @@ impl<K, V, S> HashMap<K, V, S> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`].
     ///
     /// The `hash_builder` passed should implement the [`BuildHasher`] trait for
     /// the `HashMap` to be useful, see its documentation for details.
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
-    /// [`BuildHasher`]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
     ///
     /// # Examples
     ///
@@ -522,11 +511,10 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`].
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -558,11 +546,10 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// The `hash_builder` normally use a fixed key by default and that does
     /// not allow the `HashMap` to be protected against attacks such as [`HashDoS`].
     /// Users who require HashDoS resistance should explicitly use
-    /// [`std::collections::hash_map::RandomState`]
+    /// [`std::hash::RandomState`]
     /// as the hasher when creating a [`HashMap`].
     ///
     /// [`HashDoS`]: https://en.wikipedia.org/wiki/Collision_attack
-    /// [`std::collections::hash_map::RandomState`]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
     ///
     /// # Examples
     ///
@@ -583,8 +570,6 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     }
 
     /// Returns a reference to the map's [`BuildHasher`].
-    ///
-    /// [`BuildHasher`]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
     ///
     /// # Examples
     ///
@@ -1083,8 +1068,7 @@ where
     /// in case of allocation error. Use [`try_reserve`](HashMap::try_reserve) instead
     /// if you want to handle memory allocation failure.
     ///
-    /// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html
-    /// [`abort`]: https://doc.rust-lang.org/alloc/alloc/fn.handle_alloc_error.html
+    /// [`abort`]: alloc::alloc::handle_alloc_error
     ///
     /// # Examples
     ///
@@ -1287,9 +1271,6 @@ where
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
     ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-    ///
     /// # Examples
     ///
     /// ```
@@ -1323,9 +1304,6 @@ where
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
     ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-    ///
     /// # Examples
     ///
     /// ```
@@ -1358,9 +1336,6 @@ where
     /// The supplied key may be any borrowed form of the map's key type, but
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
     ///
     /// # Examples
     ///
@@ -1399,9 +1374,6 @@ where
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
     ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-    ///
     /// # Examples
     ///
     /// ```
@@ -1430,9 +1402,6 @@ where
     /// The key may be any borrowed form of the map's key type, but
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
     ///
     /// # Examples
     ///
@@ -1820,8 +1789,6 @@ where
     /// types that can be `==` without being identical. See the [`std::collections`]
     /// [module-level documentation] for more.
     ///
-    /// [`None`]: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
-    /// [`std::collections`]: https://doc.rust-lang.org/std/collections/index.html
     /// [module-level documentation]: https://doc.rust-lang.org/std/collections/index.html#insert-and-complex-keys
     ///
     /// # Examples
@@ -1981,9 +1948,6 @@ where
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
     ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-    ///
     /// # Examples
     ///
     /// ```
@@ -2019,9 +1983,6 @@ where
     /// The key may be any borrowed form of the map's key type, but
     /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
     /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
     ///
     /// # Examples
     ///
@@ -2108,7 +2069,7 @@ where
     ///
     /// ```
     /// use hashbrown::HashMap;
-    /// use std::collections::hash_map::RandomState;
+    /// use std::hash::RandomState;
     ///
     /// // You can specify all types of HashMap, including hasher and allocator.
     /// // Created map is empty and don't allocate memory
@@ -2181,8 +2142,7 @@ where
 /// This `struct` is created by the [`iter`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`iter`]: struct.HashMap.html#method.iter
-/// [`HashMap`]: struct.HashMap.html
+/// [`iter`]: HashMap::iter
 ///
 /// # Examples
 ///
@@ -2231,8 +2191,7 @@ impl<K: Debug, V: Debug> fmt::Debug for Iter<'_, K, V> {
 /// This `struct` is created by the [`iter_mut`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`iter_mut`]: struct.HashMap.html#method.iter_mut
-/// [`HashMap`]: struct.HashMap.html
+/// [`iter_mut`]: HashMap::iter_mut
 ///
 /// # Examples
 ///
@@ -2281,9 +2240,7 @@ impl<K, V> IterMut<'_, K, V> {
 /// (provided by the [`IntoIterator`] trait). See its documentation for more.
 /// The map cannot be used after calling that method.
 ///
-/// [`into_iter`]: struct.HashMap.html#method.into_iter
-/// [`HashMap`]: struct.HashMap.html
-/// [`IntoIterator`]: https://doc.rust-lang.org/core/iter/trait.IntoIterator.html
+/// [`into_iter`]: HashMap::into_iter
 ///
 /// # Examples
 ///
@@ -2326,8 +2283,7 @@ impl<K, V, A: Allocator> IntoIter<K, V, A> {
 /// See its documentation for more.
 /// The map cannot be used after calling that method.
 ///
-/// [`into_keys`]: struct.HashMap.html#method.into_keys
-/// [`HashMap`]: struct.HashMap.html
+/// [`into_keys`]: HashMap::into_keys
 ///
 /// # Examples
 ///
@@ -2404,8 +2360,7 @@ impl<K: Debug, V: Debug, A: Allocator> fmt::Debug for IntoKeys<K, V, A> {
 /// This `struct` is created by the [`into_values`] method on [`HashMap`].
 /// See its documentation for more. The map cannot be used after calling that method.
 ///
-/// [`into_values`]: struct.HashMap.html#method.into_values
-/// [`HashMap`]: struct.HashMap.html
+/// [`into_values`]: HashMap::into_values
 ///
 /// # Examples
 ///
@@ -2482,8 +2437,7 @@ impl<K, V: Debug, A: Allocator> fmt::Debug for IntoValues<K, V, A> {
 /// This `struct` is created by the [`keys`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`keys`]: struct.HashMap.html#method.keys
-/// [`HashMap`]: struct.HashMap.html
+/// [`keys`]: HashMap::keys
 ///
 /// # Examples
 ///
@@ -2530,8 +2484,7 @@ impl<K: Debug, V> fmt::Debug for Keys<'_, K, V> {
 /// This `struct` is created by the [`values`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`values`]: struct.HashMap.html#method.values
-/// [`HashMap`]: struct.HashMap.html
+/// [`values`]: HashMap::values
 ///
 /// # Examples
 ///
@@ -2578,8 +2531,7 @@ impl<K, V: Debug> fmt::Debug for Values<'_, K, V> {
 /// This `struct` is created by the [`drain`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`drain`]: struct.HashMap.html#method.drain
-/// [`HashMap`]: struct.HashMap.html
+/// [`drain`]: HashMap::drain
 ///
 /// # Examples
 ///
@@ -2621,8 +2573,7 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
 /// This `struct` is created by the [`extract_if`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`extract_if`]: struct.HashMap.html#method.extract_if
-/// [`HashMap`]: struct.HashMap.html
+/// [`extract_if`]: HashMap::extract_if
 ///
 /// # Examples
 ///
@@ -2678,8 +2629,7 @@ impl<K, V, F> FusedIterator for ExtractIf<'_, K, V, F> where F: FnMut(&K, &mut V
 /// This `struct` is created by the [`values_mut`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`values_mut`]: struct.HashMap.html#method.values_mut
-/// [`HashMap`]: struct.HashMap.html
+/// [`values_mut`]: HashMap::values_mut
 ///
 /// # Examples
 ///
@@ -2707,8 +2657,7 @@ pub struct ValuesMut<'a, K, V> {
 ///
 /// This `enum` is constructed from the [`entry`] method on [`HashMap`].
 ///
-/// [`HashMap`]: struct.HashMap.html
-/// [`entry`]: struct.HashMap.html#method.entry
+/// [`entry`]: HashMap::entry
 ///
 /// # Examples
 ///
@@ -2863,8 +2812,6 @@ impl<K: Debug, V: Debug, S, A: Allocator> Debug for OccupiedEntry<'_, K, V, S, A
 /// A view into a vacant entry in a `HashMap`.
 /// It is part of the [`Entry`] enum.
 ///
-/// [`Entry`]: enum.Entry.html
-///
 /// # Examples
 ///
 /// ```
@@ -2910,13 +2857,9 @@ impl<K: Debug, V, S, A: Allocator> Debug for VacantEntry<'_, K, V, S, A> {
 ///
 /// [`Hash`] and [`Eq`] on the borrowed form of the map's key type *must* match those
 /// for the key type. It also require that key may be constructed from the borrowed
-/// form through the [`From`] trait.
+/// form through the [`ToOwned`] trait.
 ///
-/// [`HashMap`]: struct.HashMap.html
-/// [`entry_ref`]: struct.HashMap.html#method.entry_ref
-/// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-/// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-/// [`From`]: https://doc.rust-lang.org/std/convert/trait.From.html
+/// [`entry_ref`]: HashMap::entry_ref
 ///
 /// # Examples
 ///
@@ -3006,8 +2949,6 @@ where
 
 /// A view into a vacant entry in a `HashMap`.
 /// It is part of the [`EntryRef`] enum.
-///
-/// [`EntryRef`]: enum.EntryRef.html
 ///
 /// # Examples
 ///
@@ -3113,8 +3054,7 @@ impl<'a, K, V, S, A: Allocator> IntoIterator for &'a HashMap<K, V, S, A> {
     ///
     /// Return the same `Iter` struct as by the [`iter`] method on [`HashMap`].
     ///
-    /// [`iter`]: struct.HashMap.html#method.iter
-    /// [`HashMap`]: struct.HashMap.html
+    /// [`iter`]: HashMap::iter
     ///
     /// # Examples
     ///
@@ -3147,8 +3087,7 @@ impl<'a, K, V, S, A: Allocator> IntoIterator for &'a mut HashMap<K, V, S, A> {
     /// Return the same `IterMut` struct as by the [`iter_mut`] method on
     /// [`HashMap`].
     ///
-    /// [`iter_mut`]: struct.HashMap.html#method.iter_mut
-    /// [`HashMap`]: struct.HashMap.html
+    /// [`iter_mut`]: HashMap::iter_mut
     ///
     /// # Examples
     ///
@@ -4698,8 +4637,6 @@ where
     /// Replace values with existing keys with new values returned from the iterator.
     /// The keys and values must implement [`Copy`] trait.
     ///
-    /// [`Copy`]: https://doc.rust-lang.org/core/marker/trait.Copy.html
-    ///
     /// # Examples
     ///
     /// ```
@@ -4762,8 +4699,6 @@ where
     /// Inserts all new key-values from the iterator to existing `HashMap<K, V, S, A>`.
     /// Replace values with existing keys with new values returned from the iterator.
     /// The keys and values must implement [`Copy`] trait.
-    ///
-    /// [`Copy`]: https://doc.rust-lang.org/core/marker/trait.Copy.html
     ///
     /// # Examples
     ///
