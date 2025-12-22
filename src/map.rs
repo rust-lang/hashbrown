@@ -1,4 +1,4 @@
-use crate::raw::{Allocator, Bucket, Global, RawExtractIf};
+use crate::raw::{Allocator, Bucket, Global};
 use crate::{table, DefaultHashBuilder, Equivalent, HashTable, TryReserveError};
 use ::alloc::borrow::ToOwned;
 use core::borrow::Borrow;
@@ -931,14 +931,10 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn extract_if<F>(&mut self, f: F) -> ExtractIf<'_, K, V, F, A>
     where
-        F: FnMut(&K, &mut V) -> bool,
+        F: Filter<K, V>,
     {
         ExtractIf {
-            f,
-            inner: RawExtractIf {
-                iter: unsafe { self.table.raw.iter() },
-                table: &mut self.table.raw,
-            },
+            inner: self.table.extract_if(KeyVal(f)),
         }
     }
 
@@ -2532,6 +2528,29 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
     }
 }
 
+/// Adapter between [`map::Filter`](Filter) and [`table::Filter`].
+struct KeyVal<F>(F);
+impl<K, V, F: Filter<K, V>> table::Filter<(K, V)> for KeyVal<F> {
+    #[inline]
+    fn should_extract(&mut self, (ref key, ref mut val): &mut (K, V)) -> bool {
+        self.0.should_extract(key, val)
+    }
+}
+
+/// Filter for [`ExtractIf`].
+///
+/// Accepts `FnMut(&K, &mut V) -> bool`, but can be implemented directly.
+pub trait Filter<K, V> {
+    /// Whether the element should be extracted.
+    fn should_extract(&mut self, key: &K, value: &mut V) -> bool;
+}
+impl<K, V, F: FnMut(&K, &mut V) -> bool> Filter<K, V> for F {
+    #[inline]
+    fn should_extract(&mut self, key: &K, value: &mut V) -> bool {
+        (self)(key, value)
+    }
+}
+
 /// A draining iterator over entries of a `HashMap` which don't satisfy the predicate
 /// `f(&k, &mut v)` in arbitrary order. The iterator element type is `(K, V)`.
 ///
@@ -2564,25 +2583,24 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
 /// ```
 #[must_use = "Iterators are lazy unless consumed"]
 pub struct ExtractIf<'a, K, V, F, A: Allocator = Global> {
-    f: F,
-    inner: RawExtractIf<'a, (K, V), A>,
+    inner: table::ExtractIf<'a, (K, V), KeyVal<F>, A>,
 }
 
 impl<K, V, F, A> Iterator for ExtractIf<'_, K, V, F, A>
 where
-    F: FnMut(&K, &mut V) -> bool,
+    F: Filter<K, V>,
     A: Allocator,
 {
     type Item = (K, V);
 
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next(|&mut (ref k, ref mut v)| (self.f)(k, v))
+        self.inner.next()
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, self.inner.iter.size_hint().1)
+        self.inner.size_hint()
     }
 }
 
