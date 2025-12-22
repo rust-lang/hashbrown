@@ -5,8 +5,8 @@ use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, 
 use core::{fmt, mem};
 use map::make_hash;
 
-use super::map::{self, HashMap, Keys};
-use crate::raw::{Allocator, Global, RawExtractIf};
+use crate::map::{self, HashMap, Keys};
+use crate::raw::{Allocator, Global};
 use crate::DefaultHashBuilder;
 
 // Future Optimization (FIXME!)
@@ -403,14 +403,10 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn extract_if<F>(&mut self, f: F) -> ExtractIf<'_, T, F, A>
     where
-        F: FnMut(&T) -> bool,
+        F: Filter<T>,
     {
         ExtractIf {
-            f,
-            inner: RawExtractIf {
-                iter: unsafe { self.map.table.iter() },
-                table: &mut self.map.table,
-            },
+            inner: self.map.extract_if(Key(f)),
         }
     }
 
@@ -1139,7 +1135,7 @@ where
             Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().0 }, value)),
             Err(index) => {
                 unsafe {
-                    self.map.table.insert_at_index(hash, index, (value, ()));
+                    self.map.table.raw.insert_at_index(hash, index, (value, ()));
                 }
                 None
             }
@@ -1663,6 +1659,29 @@ pub struct Drain<'a, K, A: Allocator = Global> {
     iter: map::Drain<'a, K, (), A>,
 }
 
+/// Adapter between [`set::Filter`](Filter) and [`map::Filter`].
+struct Key<F>(F);
+impl<T, F: Filter<T>> map::Filter<T, ()> for Key<F> {
+    #[inline]
+    fn should_extract(&mut self, key: &T, (): &mut ()) -> bool {
+        self.0.should_extract(key)
+    }
+}
+
+/// Filter for [`ExtractIf`].
+///
+/// Accepts `FnMut(&K) -> bool`, but can be implemented directly.
+pub trait Filter<K> {
+    /// Whether the element should be extracted.
+    fn should_extract(&mut self, key: &K) -> bool;
+}
+impl<K, F: FnMut(&K) -> bool> Filter<K> for F {
+    #[inline]
+    fn should_extract(&mut self, key: &K) -> bool {
+        (self)(key)
+    }
+}
+
 /// A draining iterator over entries of a `HashSet` which don't satisfy the predicate `f`.
 ///
 /// This `struct` is created by the [`extract_if`] method on [`HashSet`]. See its
@@ -1672,8 +1691,7 @@ pub struct Drain<'a, K, A: Allocator = Global> {
 /// [`HashSet`]: struct.HashSet.html
 #[must_use = "Iterators are lazy unless consumed"]
 pub struct ExtractIf<'a, K, F, A: Allocator = Global> {
-    f: F,
-    inner: RawExtractIf<'a, (K, ()), A>,
+    inner: map::ExtractIf<'a, K, (), Key<F>, A>,
 }
 
 /// A lazy iterator producing elements in the intersection of `HashSet`s.
@@ -1906,20 +1924,18 @@ impl<K: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, K, A> {
 
 impl<K, F, A: Allocator> Iterator for ExtractIf<'_, K, F, A>
 where
-    F: FnMut(&K) -> bool,
+    F: Filter<K>,
 {
     type Item = K;
 
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next(|&mut (ref k, ())| (self.f)(k))
-            .map(|(k, ())| k)
+        self.inner.next().map(|(k, ())| k)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, self.inner.iter.size_hint().1)
+        self.inner.size_hint()
     }
 }
 

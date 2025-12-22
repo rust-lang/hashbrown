@@ -66,6 +66,7 @@ impl<T> HashTable<T, Global> {
     /// assert_eq!(table.len(), 0);
     /// assert_eq!(table.capacity(), 0);
     /// ```
+    #[cfg_attr(feature = "rustc-dep-of-std", rustc_const_stable_indirect)]
     pub const fn new() -> Self {
         Self {
             raw: RawTable::new(),
@@ -133,6 +134,7 @@ where
     /// #     test()
     /// # }
     /// ```
+    #[cfg_attr(feature = "rustc-dep-of-std", rustc_const_stable_indirect)]
     pub const fn new_in(alloc: A) -> Self {
         Self {
             raw: RawTable::new_in(alloc),
@@ -1379,7 +1381,7 @@ where
     /// ```
     pub fn extract_if<F>(&mut self, f: F) -> ExtractIf<'_, T, F, A>
     where
-        F: FnMut(&mut T) -> bool,
+        F: Filter<T>,
     {
         ExtractIf {
             f,
@@ -3155,6 +3157,20 @@ impl<T: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, T, A> {
     }
 }
 
+/// Filter for [`ExtractIf`].
+///
+/// Accepts `FnMut(&mut T) -> bool`, but can be implemented directly.
+pub trait Filter<T> {
+    /// Whether the element should be extracted.
+    fn should_extract(&mut self, elem: &mut T) -> bool;
+}
+impl<T, F: FnMut(&mut T) -> bool> Filter<T> for F {
+    #[inline]
+    fn should_extract(&mut self, elem: &mut T) -> bool {
+        (self)(elem)
+    }
+}
+
 /// A draining iterator over entries of a `HashTable` which don't satisfy the predicate `f`.
 ///
 /// This `struct` is created by [`HashTable::extract_if`]. See its
@@ -3165,15 +3181,12 @@ pub struct ExtractIf<'a, T, F, A: Allocator = Global> {
     inner: RawExtractIf<'a, T, A>,
 }
 
-impl<T, F, A: Allocator> Iterator for ExtractIf<'_, T, F, A>
-where
-    F: FnMut(&mut T) -> bool,
-{
+impl<T, F: Filter<T>, A: Allocator> Iterator for ExtractIf<'_, T, F, A> {
     type Item = T;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next(|val| (self.f)(val))
+        self.inner.next(|val| self.f.should_extract(val))
     }
 
     #[inline]
