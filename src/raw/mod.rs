@@ -3460,12 +3460,23 @@ impl<T: Clone, A: Allocator + Clone> RawTable<T, A> {
             .ctrl(0)
             .copy_to_nonoverlapping(self.table.ctrl(0), self.table.num_ctrl_bytes());
 
-        // The cloning of elements may panic, in which case we need
-        // to make sure we drop only the elements that have been
-        // cloned so far.
-        let mut guard = guard((0, &mut *self), |(index, self_)| {
-            if T::NEEDS_DROP {
-                for i in 0..*index {
+        // The cloning of elements may panic, in which case we need to make sure we drop only
+        // the elements that have been cloned so far.
+        //
+        // We use `usize::MAX` as the starting index instead of zero (0) to avoid the possibility
+        // of removing an uninitialized element at index `0` if the clone implementation of `T`
+        // panicked on the first call and there was an element at index zero in the original table.
+        // This is possible due to the fact that we first copy the control bytes, and only then
+        // populate the table itself.
+        //
+        // Using `usize::MAX` as the starting index makes perfect sense, because even for T is ZST
+        // (mem::size_of::<T>() == 0), the index cannot be larger than `isize::MAX - ( ctrl_align - 1)`
+        // (see TableLayout::calculate_layout_for). This is due to the fact that for any T we need
+        // one control byte; therefore, storing `usize::MAX` ZST elements requires the same amount
+        // of memory, which is physically impossible.
+        let mut guard = guard((usize::MAX, &mut *self), |(index, self_)| {
+            if T::NEEDS_DROP && *index != usize::MAX {
+                for i in 0..=*index {
                     if self_.is_bucket_full(i) {
                         self_.bucket(i).drop();
                     }
@@ -3479,7 +3490,7 @@ impl<T: Clone, A: Allocator + Clone> RawTable<T, A> {
             to.write(from.as_ref().clone());
 
             // Update the index in case we need to unwind.
-            guard.0 = index + 1;
+            guard.0 = index;
         }
 
         // Successfully cloned all items, no need to clean up.
@@ -4629,5 +4640,57 @@ mod test_map {
 
         // All allocator clones should already be dropped.
         assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    #[should_panic = "panic in clone_from"]
+    fn test_clone_from_panic_in_first_item() {
+        use ::alloc::vec::Vec;
+
+        struct CheckedCloneDrop {
+            hash: u64,
+            panic_in_clone: bool,
+            dropped: bool,
+            need_drop: Vec<u64>,
+        }
+
+        impl Clone for CheckedCloneDrop {
+            fn clone(&self) -> Self {
+                if self.panic_in_clone {
+                    panic!("panic in clone_from")
+                }
+                Self {
+                    hash: self.hash,
+                    panic_in_clone: self.panic_in_clone,
+                    dropped: self.dropped,
+                    need_drop: self.need_drop.clone(),
+                }
+            }
+        }
+
+        impl Drop for CheckedCloneDrop {
+            fn drop(&mut self) {
+                if self.dropped {
+                    panic!("double drop");
+                }
+                self.dropped = true;
+            }
+        }
+
+        let mut table = RawTable::new();
+
+        let data = CheckedCloneDrop {
+            hash: 0,
+            panic_in_clone: true,
+            dropped: false,
+            need_drop: vec![0],
+        };
+        table.insert(data.hash, data, |v| v.hash);
+
+        assert_eq!(table.len(), 1);
+
+        let mut table_two = RawTable::new();
+
+        table_two.clone_from(&table);
     }
 }
