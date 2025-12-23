@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2](https://github.com/rust-lang/hashbrown/compare/v0.16.1...v0.16.2) - 2025-12-23
+
+### Other
+
+- Merge pull request #675 from clarfonthey/unreachable-pub
+- Merge pull request #670 from clarfonthey/entry-into-entry
+- Improve entry API
+- Add hash_table::OccupiedEntry::replace_entry_with to mirror HashMap API
+- Override clone_from for HashTable
+- Rename raw table buckets to num_buckets
+
 ## [0.16.1](https://github.com/rust-lang/hashbrown/compare/v0.16.0...v0.16.1) - 2025-11-20
 
 ### Added
