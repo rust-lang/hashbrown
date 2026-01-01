@@ -1339,6 +1339,15 @@ impl<T, A: Allocator> RawTable<T, A> {
         self.table.items + self.table.growth_left
     }
 
+    /// Returns the maximum number of elements the map could potentially hold
+    /// without reallocating.
+    ///
+    /// This number is an upper bound.
+    #[inline]
+    pub fn max_capacity(&self) -> usize {
+        bucket_mask_to_capacity(self.table.bucket_mask)
+    }
+
     /// Returns the number of elements in the table.
     #[inline]
     pub(crate) fn len(&self) -> usize {
@@ -3305,6 +3314,15 @@ impl RawTableInner {
             self.set_ctrl(index, ctrl);
         }
         self.items -= 1;
+
+        // If the last item was removed we can do some cleanup
+        if unlikely(self.items == 0) {
+            let desired_capacity = bucket_mask_to_capacity(self.bucket_mask);
+            if self.growth_left <= desired_capacity / 2 {
+                // Restore an accurate view of the capacity
+                self.clear_no_drop()
+            }
+        }
     }
 }
 
