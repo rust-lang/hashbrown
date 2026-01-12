@@ -9,7 +9,7 @@ use paralight::iter::{
 impl<'data, T: Sync + 'data, S: 'data, A: Allocator + Sync + 'data> IntoParallelRefSource<'data>
     for HashSet<T, S, A>
 {
-    type Item = Option<&'data T>;
+    type Item = &'data T;
     type Source = HashSetRefParallelSource<'data, T, S, A>;
 
     fn par_iter(&'data self) -> Self::Source {
@@ -25,7 +25,7 @@ pub struct HashSetRefParallelSource<'data, T, S, A: Allocator> {
 impl<'data, T: Sync, S, A: Allocator + Sync> ParallelSource
     for HashSetRefParallelSource<'data, T, S, A>
 {
-    type Item = Option<&'data T>;
+    type Item = &'data T;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashSetRefSourceDescriptor {
@@ -41,19 +41,19 @@ struct HashSetRefSourceDescriptor<'data, T: Sync, A: Allocator> {
 impl<T: Sync, A: Allocator> SourceCleanup for HashSetRefSourceDescriptor<'_, T, A> {
     const NEEDS_CLEANUP: bool = false;
 
+    fn len(&self) -> usize {
+        self.table.buckets()
+    }
+
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
         // Nothing to cleanup
     }
 }
 
 impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescriptor<'data, T, A> {
-    type Item = Option<&'data T>;
+    type Item = &'data T;
 
-    fn len(&self) -> usize {
-        self.table.buckets()
-    }
-
-    unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
@@ -73,7 +73,7 @@ impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescript
 impl<'data, K: Sync + 'data, V: Sync + 'data, S: 'data, A: Allocator + Sync + 'data>
     IntoParallelRefSource<'data> for HashMap<K, V, S, A>
 {
-    type Item = Option<&'data (K, V)>;
+    type Item = &'data (K, V);
     type Source = HashMapRefParallelSource<'data, K, V, S, A>;
 
     fn par_iter(&'data self) -> Self::Source {
@@ -89,7 +89,7 @@ pub struct HashMapRefParallelSource<'data, K, V, S, A: Allocator> {
 impl<'data, K: Sync, V: Sync, S, A: Allocator + Sync> ParallelSource
     for HashMapRefParallelSource<'data, K, V, S, A>
 {
-    type Item = Option<&'data (K, V)>;
+    type Item = &'data (K, V);
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashMapRefSourceDescriptor {
@@ -105,6 +105,10 @@ struct HashMapRefSourceDescriptor<'data, K: Sync, V: Sync, A: Allocator> {
 impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescriptor<'_, K, V, A> {
     const NEEDS_CLEANUP: bool = false;
 
+    fn len(&self) -> usize {
+        self.table.buckets()
+    }
+
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
         // Nothing to cleanup
     }
@@ -113,13 +117,9 @@ impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescripto
 impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
     for HashMapRefSourceDescriptor<'data, K, V, A>
 {
-    type Item = Option<&'data (K, V)>;
+    type Item = &'data (K, V);
 
-    fn len(&self) -> usize {
-        self.table.buckets()
-    }
-
-    unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
@@ -139,7 +139,7 @@ impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
 impl<'data, K: Sync + 'data, V: Send + Sync + 'data, S: 'data, A: Allocator + Sync + 'data>
     IntoParallelRefMutSource<'data> for HashMap<K, V, S, A>
 {
-    type Item = Option<(&'data K, &'data mut V)>;
+    type Item = (&'data K, &'data mut V);
     type Source = HashMapRefMutParallelSource<'data, K, V, S, A>;
 
     fn par_iter_mut(&'data mut self) -> Self::Source {
@@ -155,7 +155,7 @@ pub struct HashMapRefMutParallelSource<'data, K, V, S, A: Allocator> {
 impl<'data, K: Sync, V: Send + Sync, S, A: Allocator + Sync> ParallelSource
     for HashMapRefMutParallelSource<'data, K, V, S, A>
 {
-    type Item = Option<(&'data K, &'data mut V)>;
+    type Item = (&'data K, &'data mut V);
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashMapRefMutSourceDescriptor {
@@ -173,6 +173,10 @@ impl<K: Sync, V: Send + Sync, A: Allocator> SourceCleanup
 {
     const NEEDS_CLEANUP: bool = false;
 
+    fn len(&self) -> usize {
+        self.table.buckets()
+    }
+
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
         // Nothing to cleanup
     }
@@ -181,13 +185,9 @@ impl<K: Sync, V: Send + Sync, A: Allocator> SourceCleanup
 impl<'data, K: Sync, V: Send + Sync, A: Allocator> SourceDescriptor
     for HashMapRefMutSourceDescriptor<'data, K, V, A>
 {
-    type Item = Option<(&'data K, &'data mut V)>;
+    type Item = (&'data K, &'data mut V);
 
-    fn len(&self) -> usize {
-        self.table.buckets()
-    }
-
-    unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
@@ -206,7 +206,7 @@ impl<'data, K: Sync, V: Send + Sync, A: Allocator> SourceDescriptor
 // HashSet.into_par_iter()
 // TODO: Remove Sync requirement on T.
 impl<T: Send + Sync, S, A: Allocator + Sync> IntoParallelSource for HashSet<T, S, A> {
-    type Item = Option<T>;
+    type Item = T;
     type Source = HashSetParallelSource<T, S, A>;
 
     fn into_par_iter(self) -> Self::Source {
@@ -220,7 +220,7 @@ pub struct HashSetParallelSource<T, S, A: Allocator> {
 }
 
 impl<T: Send + Sync, S, A: Allocator + Sync> ParallelSource for HashSetParallelSource<T, S, A> {
-    type Item = Option<T>;
+    type Item = T;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashSetSourceDescriptor {
@@ -235,6 +235,10 @@ struct HashSetSourceDescriptor<T, A: Allocator> {
 
 impl<T: Send + Sync, A: Allocator> SourceCleanup for HashSetSourceDescriptor<T, A> {
     const NEEDS_CLEANUP: bool = core::mem::needs_drop::<T>();
+
+    fn len(&self) -> usize {
+        self.table.buckets()
+    }
 
     unsafe fn cleanup_item_range(&self, range: core::ops::Range<usize>) {
         if Self::NEEDS_CLEANUP {
@@ -257,13 +261,9 @@ impl<T: Send + Sync, A: Allocator> SourceCleanup for HashSetSourceDescriptor<T, 
 }
 
 impl<T: Send + Sync, A: Allocator> SourceDescriptor for HashSetSourceDescriptor<T, A> {
-    type Item = Option<T>;
+    type Item = T;
 
-    fn len(&self) -> usize {
-        self.table.buckets()
-    }
-
-    unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
@@ -293,7 +293,7 @@ impl<T, A: Allocator> Drop for HashSetSourceDescriptor<T, A> {
 impl<K: Send + Sync, V: Send + Sync, S, A: Allocator + Sync> IntoParallelSource
     for HashMap<K, V, S, A>
 {
-    type Item = Option<(K, V)>;
+    type Item = (K, V);
     type Source = HashMapParallelSource<K, V, S, A>;
 
     fn into_par_iter(self) -> Self::Source {
@@ -309,7 +309,7 @@ pub struct HashMapParallelSource<K, V, S, A: Allocator> {
 impl<K: Send + Sync, V: Send + Sync, S, A: Allocator + Sync> ParallelSource
     for HashMapParallelSource<K, V, S, A>
 {
-    type Item = Option<(K, V)>;
+    type Item = (K, V);
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashMapSourceDescriptor {
@@ -326,6 +326,10 @@ impl<K: Send + Sync, V: Send + Sync, A: Allocator> SourceCleanup
     for HashMapSourceDescriptor<K, V, A>
 {
     const NEEDS_CLEANUP: bool = core::mem::needs_drop::<(K, V)>();
+
+    fn len(&self) -> usize {
+        self.table.buckets()
+    }
 
     unsafe fn cleanup_item_range(&self, range: core::ops::Range<usize>) {
         if Self::NEEDS_CLEANUP {
@@ -350,13 +354,9 @@ impl<K: Send + Sync, V: Send + Sync, A: Allocator> SourceCleanup
 impl<K: Send + Sync, V: Send + Sync, A: Allocator> SourceDescriptor
     for HashMapSourceDescriptor<K, V, A>
 {
-    type Item = Option<(K, V)>;
+    type Item = (K, V);
 
-    fn len(&self) -> usize {
-        self.table.buckets()
-    }
-
-    unsafe fn fetch_item(&self, index: usize) -> Self::Item {
+    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: TODO
         let full = unsafe { self.table.is_bucket_full(index) };
@@ -386,7 +386,7 @@ mod test {
     use alloc::boxed::Box;
     use core::ops::Deref;
     use paralight::iter::{ParallelIteratorExt, ParallelSourceExt};
-    use paralight::{CpuPinningPolicy, RangeStrategy, ThreadCount, ThreadPoolBuilder};
+    use paralight::threads::{CpuPinningPolicy, RangeStrategy, ThreadCount, ThreadPoolBuilder};
 
     #[test]
     fn test_set_par_iter() {
@@ -405,7 +405,7 @@ mod test {
         let sum = set
             .par_iter()
             .with_thread_pool(&mut thread_pool)
-            .filter_map(|x| x.map(|y| y.deref()))
+            .map(|x| x.deref())
             .sum::<i32>();
         assert_eq!(sum, 21 * 43);
     }
@@ -427,7 +427,7 @@ mod test {
         let sum = set
             .into_par_iter()
             .with_thread_pool(&mut thread_pool)
-            .filter_map(|x| x.map(|y| *y))
+            .map(|x| *x)
             .sum::<i32>();
         assert_eq!(sum, 21 * 43);
     }
@@ -448,7 +448,6 @@ mod test {
 
         map.par_iter()
             .with_thread_pool(&mut thread_pool)
-            .filter_map(|x| x)
             .for_each(|(k, v)| assert_eq!(**k * **k, **v));
     }
 
@@ -468,7 +467,6 @@ mod test {
 
         map.par_iter_mut()
             .with_thread_pool(&mut thread_pool)
-            .filter_map(|x| x)
             .for_each(|(k, v)| **v *= **k);
 
         for (k, v) in map.iter() {
@@ -492,7 +490,6 @@ mod test {
 
         map.into_par_iter()
             .with_thread_pool(&mut thread_pool)
-            .filter_map(|x| x)
             .for_each(|(k, v)| assert_eq!(*k * *k, *v));
     }
 }
