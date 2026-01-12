@@ -497,6 +497,30 @@ mod test {
     }
 
     #[test]
+    fn test_set_into_par_iter_find() {
+        let mut thread_pool = ThreadPoolBuilder {
+            num_threads: ThreadCount::AvailableParallelism,
+            range_strategy: RangeStrategy::WorkStealing,
+            cpu_pinning: CpuPinningPolicy::No,
+        }
+        .build();
+
+        let mut set = HashSet::new();
+        for i in 1..=42 {
+            set.insert(Box::new(i));
+        }
+
+        // The search will exit once an even number is found, this test checks
+        // (with Miri) that no memory leak happens as a result.
+        let any_even = set
+            .into_par_iter()
+            .with_thread_pool(&mut thread_pool)
+            .find_any(|x| **x % 2 == 0);
+        assert!(any_even.is_some());
+        assert_eq!(*any_even.unwrap() % 2, 0);
+    }
+
+    #[test]
     fn test_map_par_iter() {
         let mut thread_pool = ThreadPoolBuilder {
             num_threads: ThreadCount::AvailableParallelism,
@@ -597,5 +621,31 @@ mod test {
         map.into_par_iter()
             .with_thread_pool(&mut thread_pool)
             .for_each(|(k, v)| assert_eq!(k.get() * k.get(), v.get()));
+    }
+
+    #[test]
+    fn test_map_into_par_iter_find() {
+        let mut thread_pool = ThreadPoolBuilder {
+            num_threads: ThreadCount::AvailableParallelism,
+            range_strategy: RangeStrategy::WorkStealing,
+            cpu_pinning: CpuPinningPolicy::No,
+        }
+        .build();
+
+        let mut map = HashMap::new();
+        for i in 1..=42 {
+            map.insert(Box::new(i), Box::new(i * i));
+        }
+
+        // The search will exit once an match is found, this test checks (with
+        // Miri) that no memory leak happens as a result.
+        let needle = map
+            .into_par_iter()
+            .with_thread_pool(&mut thread_pool)
+            .find_any(|(k, v)| **k % 2 == 0 && **v % 3 == 0);
+        assert!(needle.is_some());
+        let (k, v) = needle.unwrap();
+        assert_eq!(*k % 2, 0);
+        assert_eq!(*v % 3, 0);
     }
 }
