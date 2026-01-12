@@ -55,12 +55,19 @@ impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescript
 
     unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
-        // SAFETY: TODO
+        // SAFETY: The passed index is less than the number of buckets. This is
+        // ensured by the safety preconditions of `fetch_item()`, given that
+        // `len()` returned the number of buckets, and is further confirmed by
+        // the debug assertion.
         let full = unsafe { self.table.is_bucket_full(index) };
         if full {
-            // SAFETY: TODO
+            // SAFETY:
+            // - The table is already allocated.
+            // - The index is in bounds (see previous safety comment).
+            // - The table contains elements of type (T, ()).
             let bucket = unsafe { self.table.bucket(index) };
-            // SAFETY: TODO
+            // SAFETY: The bucket is full, so it's safe to derive a const
+            // reference from it.
             let (t, ()) = unsafe { bucket.as_ref() };
             Some(t)
         } else {
@@ -121,12 +128,19 @@ impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
 
     unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
-        // SAFETY: TODO
+        // SAFETY: The passed index is less than the number of buckets. This is
+        // ensured by the safety preconditions of `fetch_item()`, given that
+        // `len()` returned the number of buckets, and is further confirmed by
+        // the debug assertion.
         let full = unsafe { self.table.is_bucket_full(index) };
         if full {
-            // SAFETY: TODO
+            // SAFETY:
+            // - The table is already allocated.
+            // - The index is in bounds (see previous safety comment).
+            // - The table contains elements of type (K, V).
             let bucket = unsafe { self.table.bucket(index) };
-            // SAFETY: TODO
+            // SAFETY: The bucket is full, so it's safe to derive a const
+            // reference from it.
             unsafe { Some(bucket.as_ref()) }
         } else {
             None
@@ -188,12 +202,27 @@ impl<'data, K: Sync, V: Send, A: Allocator> SourceDescriptor
 
     unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
-        // SAFETY: TODO
+        // SAFETY: The passed index is less than the number of buckets. This is
+        // ensured by the safety preconditions of `fetch_item()`, given that
+        // `len()` returned the number of buckets, and is further confirmed by
+        // the debug assertion.
         let full = unsafe { self.table.inner.is_bucket_full(index) };
         if full {
-            // SAFETY: TODO
+            // SAFETY:
+            // - The table is already allocated.
+            // - The index is in bounds (see previous safety comment).
+            // - The table contains elements of type (K, V).
             let bucket = unsafe { self.table.inner.bucket(index) };
-            // SAFETY: TODO
+            // SAFETY:
+            // - The bucket is full, i.e. points to a valid value.
+            // - While the resulting reference is valid, the memory it points to
+            //   isn't accessed through any other pointer. Indeed, the
+            //   `SourceDescriptor` contract ensures that no other call to
+            //   `fetch_item()` will be made at this index while the iterator is
+            //   active. Furthermore, `HashMapRefMutParallelSource` holds a
+            //   mutable reference to the hash map with the 'data lifetime,
+            //   ensuring that no other part of the program accesses the hash
+            //   map while the returned reference exists.
             let (key, value) = unsafe { bucket.as_mut() };
             Some((key, value))
         } else {
@@ -246,12 +275,25 @@ impl<T: Send, A: Allocator> SourceCleanup for HashSetSourceDescriptor<T, A> {
             debug_assert!(range.start <= self.len());
             debug_assert!(range.end <= self.len());
             for index in range {
-                // SAFETY: TODO
+                // SAFETY: The passed index is less than the number of buckets. This is
+                // ensured by the safety preconditions of `cleanup_item_range()`, given
+                // that `len()` returned the number of buckets, and is further confirmed
+                // by the debug assertions.
                 let full = unsafe { self.table.inner.is_bucket_full(index) };
                 if full {
-                    // SAFETY: TODO
+                    // SAFETY:
+                    // - The table is already allocated.
+                    // - The index is in bounds (see previous safety comment).
+                    // - The table contains elements of type (T, ()).
                     let bucket = unsafe { self.table.inner.bucket(index) };
-                    // SAFETY: TODO
+                    // SAFETY:
+                    // - The bucket points to an aligned value of type (T, ()).
+                    // - The value is initialized, as the bucket is full.
+                    // - No other part of the program reads it, as the `SourceCleanup`
+                    //   and `SourceDescriptor` contracts ensure that no other call to
+                    //   `fetch_item()` nor `cleanup_item_range()` is made for this
+                    //   index; and even though the bucket isn't marked as empty here,
+                    //   the Drop implementation clears the table without dropping.
                     let (t, ()) = unsafe { bucket.read() };
                     drop(t);
                 }
@@ -265,12 +307,25 @@ impl<T: Send, A: Allocator> SourceDescriptor for HashSetSourceDescriptor<T, A> {
 
     unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
-        // SAFETY: TODO
+        // SAFETY: The passed index is less than the number of buckets. This is
+        // ensured by the safety preconditions of `fetch_item()`, given that
+        // `len()` returned the number of buckets, and is further confirmed by
+        // the debug assertion.
         let full = unsafe { self.table.inner.is_bucket_full(index) };
         if full {
-            // SAFETY: TODO
+            // SAFETY:
+            // - The table is already allocated.
+            // - The index is in bounds (see previous safety comment).
+            // - The table contains elements of type (T, ()).
             let bucket = unsafe { self.table.inner.bucket(index) };
-            // SAFETY: TODO
+            // SAFETY:
+            // - The bucket points to an aligned value of type (T, ()).
+            // - The value is initialized, as the bucket is full.
+            // - No other part of the program reads it, as the `SourceCleanup`
+            //   and `SourceDescriptor` contracts ensure that no other call to
+            //   `fetch_item()` nor `cleanup_item_range()` is made for this
+            //   index; and even though the bucket isn't marked as empty here,
+            //   the Drop implementation clears the table without dropping.
             let (t, ()) = unsafe { bucket.read() };
             Some(t)
         } else {
@@ -281,8 +336,13 @@ impl<T: Send, A: Allocator> SourceDescriptor for HashSetSourceDescriptor<T, A> {
 
 impl<T, A: Allocator> Drop for HashSetSourceDescriptor<T, A> {
     fn drop(&mut self) {
-        // Paralight already dropped each missing bucket via calls to cleanup_item_range(), so we
+        // Paralight already dropped each missing* bucket via calls to cleanup_item_range(), so we
         // can simply mark all buckets as cleared and let the RawTable destructor do the rest.
+        //
+        // *Some buckets may be missing because the iterator exited early (e.g. an item was found
+        // via the find_any() adaptor) or unexpectedly due to a panic (e.g. in the closure passed
+        // to the for_each() adaptor).
+        //
         // TODO: Optimize this to simply deallocate without touching the control bytes.
         self.table.inner.clear_no_drop();
     }
@@ -334,12 +394,25 @@ impl<K: Send, V: Send, A: Allocator> SourceCleanup for HashMapSourceDescriptor<K
             debug_assert!(range.start <= self.len());
             debug_assert!(range.end <= self.len());
             for index in range {
-                // SAFETY: TODO
+                // SAFETY: The passed index is less than the number of buckets. This is
+                // ensured by the safety preconditions of `cleanup_item_range()`, given
+                // that `len()` returned the number of buckets, and is further confirmed
+                // by the debug assertions.
                 let full = unsafe { self.table.inner.is_bucket_full(index) };
                 if full {
-                    // SAFETY: TODO
+                    // SAFETY:
+                    // - The table is already allocated.
+                    // - The index is in bounds (see previous safety comment).
+                    // - The table contains elements of type (K, V).
                     let bucket = unsafe { self.table.inner.bucket(index) };
-                    // SAFETY: TODO
+                    // SAFETY:
+                    // - The bucket points to an aligned value of type (K, V).
+                    // - The value is initialized, as the bucket is full.
+                    // - No other part of the program reads it, as the `SourceCleanup`
+                    //   and `SourceDescriptor` contracts ensure that no other call to
+                    //   `fetch_item()` nor `cleanup_item_range()` is made for this
+                    //   index; and even though the bucket isn't marked as empty here,
+                    //   the Drop implementation clears the table without dropping.
                     let key_value = unsafe { bucket.read() };
                     drop(key_value);
                 }
@@ -353,12 +426,25 @@ impl<K: Send, V: Send, A: Allocator> SourceDescriptor for HashMapSourceDescripto
 
     unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
-        // SAFETY: TODO
+        // SAFETY: The passed index is less than the number of buckets. This is
+        // ensured by the safety preconditions of `fetch_item()`, given that
+        // `len()` returned the number of buckets, and is further confirmed by
+        // the debug assertion.
         let full = unsafe { self.table.inner.is_bucket_full(index) };
         if full {
-            // SAFETY: TODO
+            // SAFETY:
+            // - The table is already allocated.
+            // - The index is in bounds (see previous safety comment).
+            // - The table contains elements of type (K, V).
             let bucket = unsafe { self.table.inner.bucket(index) };
-            // SAFETY: TODO
+            // SAFETY:
+            // - The bucket points to an aligned value of type (K, V).
+            // - The value is initialized, as the bucket is full.
+            // - No other part of the program reads it, as the `SourceCleanup`
+            //   and `SourceDescriptor` contracts ensure that no other call to
+            //   `fetch_item()` nor `cleanup_item_range()` is made for this
+            //   index; and even though the bucket isn't marked as empty here,
+            //   the Drop implementation clears the table without dropping.
             unsafe { Some(bucket.read()) }
         } else {
             None
@@ -368,8 +454,13 @@ impl<K: Send, V: Send, A: Allocator> SourceDescriptor for HashMapSourceDescripto
 
 impl<K, V, A: Allocator> Drop for HashMapSourceDescriptor<K, V, A> {
     fn drop(&mut self) {
-        // Paralight already dropped each missing bucket via calls to cleanup_item_range(), so we
+        // Paralight already dropped each missing* bucket via calls to cleanup_item_range(), so we
         // can simply mark all buckets as cleared and let the RawTable destructor do the rest.
+        //
+        // *Some buckets may be missing because the iterator exited early (e.g. an item was found
+        // via the find_any() adaptor) or unexpectedly due to a panic (e.g. in the closure passed
+        // to the for_each() adaptor).
+        //
         // TODO: Optimize this to simply deallocate without touching the control bytes.
         self.table.inner.clear_no_drop();
     }
