@@ -338,15 +338,16 @@ impl<T: Send, A: Allocator> SourceDescriptor for HashSetSourceDescriptor<T, A> {
 
 impl<T, A: Allocator> Drop for HashSetSourceDescriptor<T, A> {
     fn drop(&mut self) {
+        // SAFETY:
         // Paralight already dropped each missing* bucket via calls to cleanup_item_range(), so we
         // can simply mark all buckets as cleared and let the RawTable destructor do the rest.
         //
         // *Some buckets may be missing because the iterator exited early (e.g. an item was found
         // via the find_any() adaptor) or unexpectedly due to a panic (e.g. in the closure passed
         // to the for_each() adaptor).
-        //
-        // TODO: Optimize this to simply deallocate without touching the control bytes.
-        self.table.inner.clear_no_drop();
+        unsafe {
+            self.table.inner.deallocate_cleared_table();
+        }
     }
 }
 
@@ -454,15 +455,16 @@ impl<K: Send, V: Send, A: Allocator> SourceDescriptor for HashMapSourceDescripto
 
 impl<K, V, A: Allocator> Drop for HashMapSourceDescriptor<K, V, A> {
     fn drop(&mut self) {
+        // SAFETY:
         // Paralight already dropped each missing* bucket via calls to cleanup_item_range(), so we
         // can simply mark all buckets as cleared and let the RawTable destructor do the rest.
         //
         // *Some buckets may be missing because the iterator exited early (e.g. an item was found
         // via the find_any() adaptor) or unexpectedly due to a panic (e.g. in the closure passed
         // to the for_each() adaptor).
-        //
-        // TODO: Optimize this to simply deallocate without touching the control bytes.
-        self.table.inner.clear_no_drop();
+        unsafe {
+            self.table.inner.deallocate_cleared_table();
+        }
     }
 }
 
