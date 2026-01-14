@@ -1499,13 +1499,15 @@ impl<T, A: Allocator> RawTable<T, A> {
 
         // Avoid `Option::unwrap_or_else` because it bloats LLVM IR.
         let (layout, ctrl_offset) =
-            match Self::TABLE_LAYOUT.calculate_layout_for(self.table.buckets()) {
+            match Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets()) {
                 Some(lco) => lco,
                 None => unsafe { hint::unreachable_unchecked() },
             };
         let ptr =
             unsafe { NonNull::new_unchecked(self.table.ctrl.as_ptr().sub(ctrl_offset).cast()) };
-        self.alloc.deallocate(ptr, layout);
+        unsafe {
+            self.alloc.deallocate(ptr, layout);
+        }
 
         // Reset the table, so that it can be dropped without double free.
         self.table = RawTableInner::NEW;

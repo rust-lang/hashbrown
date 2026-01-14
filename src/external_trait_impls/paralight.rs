@@ -48,7 +48,7 @@ impl<T: Sync, A: Allocator> SourceCleanup for HashSetRefSourceDescriptor<'_, T, 
     const NEEDS_CLEANUP: bool = false;
 
     fn len(&self) -> usize {
-        self.table.inner.buckets()
+        self.table.inner.num_buckets()
     }
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -121,7 +121,7 @@ impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescripto
     const NEEDS_CLEANUP: bool = false;
 
     fn len(&self) -> usize {
-        self.table.inner.buckets()
+        self.table.inner.num_buckets()
     }
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -195,7 +195,7 @@ impl<K: Sync, V: Send, A: Allocator> SourceCleanup for HashMapRefMutSourceDescri
     const NEEDS_CLEANUP: bool = false;
 
     fn len(&self) -> usize {
-        self.table.inner.buckets()
+        self.table.inner.num_buckets()
     }
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -274,7 +274,7 @@ impl<T: Send, A: Allocator> SourceCleanup for HashSetSourceDescriptor<T, A> {
     const NEEDS_CLEANUP: bool = core::mem::needs_drop::<T>();
 
     fn len(&self) -> usize {
-        self.table.inner.buckets()
+        self.table.inner.num_buckets()
     }
 
     unsafe fn cleanup_item_range(&self, range: core::ops::Range<usize>) {
@@ -392,7 +392,7 @@ impl<K: Send, V: Send, A: Allocator> SourceCleanup for HashMapSourceDescriptor<K
     const NEEDS_CLEANUP: bool = core::mem::needs_drop::<(K, V)>();
 
     fn len(&self) -> usize {
-        self.table.inner.buckets()
+        self.table.inner.num_buckets()
     }
 
     unsafe fn cleanup_item_range(&self, range: core::ops::Range<usize>) {
