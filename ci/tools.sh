@@ -29,14 +29,14 @@ if rustc --version | grep --quiet nightly ; then
     export RUSTDOCFLAGS="-Zunstable-options --check"
 fi
 
-cargo doc --no-deps --features serde,rayon
+cargo doc --no-deps --features serde,rayon,paralight
 
 if retry rustup component add rustfmt ; then
     cargo fmt --all -- --check
 fi
 
 if retry rustup component add clippy ; then
-    cargo clippy --all --tests --features serde,rayon -- -D warnings
+    cargo clippy --all --tests --features serde,rayon,paralight -- -D warnings
 fi
 
 if command -v taplo ; then
