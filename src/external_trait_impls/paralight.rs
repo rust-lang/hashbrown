@@ -1,4 +1,4 @@
-use crate::raw::{Allocator, RawTable};
+use crate::raw::Allocator;
 use crate::{HashMap, HashSet};
 use paralight::iter::{
     IntoParallelRefMutSource, IntoParallelRefSource, IntoParallelSource, ParallelSource,
@@ -6,7 +6,7 @@ use paralight::iter::{
 };
 
 // HashSet.par_iter()
-impl<'data, T: Sync + 'data, S: 'data, A: Allocator + Sync + 'data> IntoParallelRefSource<'data>
+impl<'data, T: Sync + 'data, S: 'data, A: Allocator + 'data> IntoParallelRefSource<'data>
     for HashSet<T, S, A>
 {
     type Item = &'data T;
@@ -22,27 +22,27 @@ pub struct HashSetRefParallelSource<'data, T, S, A: Allocator> {
     hash_set: &'data HashSet<T, S, A>,
 }
 
-impl<'data, T: Sync, S, A: Allocator + Sync> ParallelSource
-    for HashSetRefParallelSource<'data, T, S, A>
-{
+impl<'data, T: Sync, S, A: Allocator> ParallelSource for HashSetRefParallelSource<'data, T, S, A> {
     type Item = &'data T;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashSetRefSourceDescriptor {
-            table: &self.hash_set.map.table,
+            table: raw_table_wrapper::HashSetRef {
+                inner: &self.hash_set.map.table,
+            },
         }
     }
 }
 
 struct HashSetRefSourceDescriptor<'data, T: Sync, A: Allocator> {
-    table: &'data RawTable<(T, ()), A>,
+    table: raw_table_wrapper::HashSetRef<'data, T, A>,
 }
 
 impl<T: Sync, A: Allocator> SourceCleanup for HashSetRefSourceDescriptor<'_, T, A> {
     const NEEDS_CLEANUP: bool = false;
 
     fn len(&self) -> usize {
-        self.table.buckets()
+        self.table.inner.buckets()
     }
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -59,13 +59,13 @@ impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescript
         // ensured by the safety preconditions of `fetch_item()`, given that
         // `len()` returned the number of buckets, and is further confirmed by
         // the debug assertion.
-        let full = unsafe { self.table.is_bucket_full(index) };
+        let full = unsafe { self.table.inner.is_bucket_full(index) };
         if full {
             // SAFETY:
             // - The table is already allocated.
             // - The index is in bounds (see previous safety comment).
             // - The table contains elements of type (T, ()).
-            let bucket = unsafe { self.table.bucket(index) };
+            let bucket = unsafe { self.table.inner.bucket(index) };
             // SAFETY: The bucket is full, so it's safe to derive a const
             // reference from it.
             let (t, ()) = unsafe { bucket.as_ref() };
@@ -77,7 +77,7 @@ impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescript
 }
 
 // HashMap.par_iter()
-impl<'data, K: Sync + 'data, V: Sync + 'data, S: 'data, A: Allocator + Sync + 'data>
+impl<'data, K: Sync + 'data, V: Sync + 'data, S: 'data, A: Allocator + 'data>
     IntoParallelRefSource<'data> for HashMap<K, V, S, A>
 {
     type Item = &'data (K, V);
@@ -93,27 +93,29 @@ pub struct HashMapRefParallelSource<'data, K, V, S, A: Allocator> {
     hash_map: &'data HashMap<K, V, S, A>,
 }
 
-impl<'data, K: Sync, V: Sync, S, A: Allocator + Sync> ParallelSource
+impl<'data, K: Sync, V: Sync, S, A: Allocator> ParallelSource
     for HashMapRefParallelSource<'data, K, V, S, A>
 {
     type Item = &'data (K, V);
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
         HashMapRefSourceDescriptor {
-            table: &self.hash_map.table,
+            table: raw_table_wrapper::HashMapRef {
+                inner: &self.hash_map.table,
+            },
         }
     }
 }
 
 struct HashMapRefSourceDescriptor<'data, K: Sync, V: Sync, A: Allocator> {
-    table: &'data RawTable<(K, V), A>,
+    table: raw_table_wrapper::HashMapRef<'data, K, V, A>,
 }
 
 impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescriptor<'_, K, V, A> {
     const NEEDS_CLEANUP: bool = false;
 
     fn len(&self) -> usize {
-        self.table.buckets()
+        self.table.inner.buckets()
     }
 
     unsafe fn cleanup_item_range(&self, _range: core::ops::Range<usize>) {
@@ -132,13 +134,13 @@ impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
         // ensured by the safety preconditions of `fetch_item()`, given that
         // `len()` returned the number of buckets, and is further confirmed by
         // the debug assertion.
-        let full = unsafe { self.table.is_bucket_full(index) };
+        let full = unsafe { self.table.inner.is_bucket_full(index) };
         if full {
             // SAFETY:
             // - The table is already allocated.
             // - The index is in bounds (see previous safety comment).
             // - The table contains elements of type (K, V).
-            let bucket = unsafe { self.table.bucket(index) };
+            let bucket = unsafe { self.table.inner.bucket(index) };
             // SAFETY: The bucket is full, so it's safe to derive a const
             // reference from it.
             unsafe { Some(bucket.as_ref()) }
@@ -149,7 +151,7 @@ impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
 }
 
 // HashMap.par_iter_mut()
-impl<'data, K: Sync + 'data, V: Send + 'data, S: 'data, A: Allocator + Sync + 'data>
+impl<'data, K: Sync + 'data, V: Send + 'data, S: 'data, A: Allocator + 'data>
     IntoParallelRefMutSource<'data> for HashMap<K, V, S, A>
 {
     type Item = (&'data K, &'data mut V);
@@ -165,7 +167,7 @@ pub struct HashMapRefMutParallelSource<'data, K, V, S, A: Allocator> {
     hash_map: &'data mut HashMap<K, V, S, A>,
 }
 
-impl<'data, K: Sync, V: Send, S, A: Allocator + Sync> ParallelSource
+impl<'data, K: Sync, V: Send, S, A: Allocator> ParallelSource
     for HashMapRefMutParallelSource<'data, K, V, S, A>
 {
     type Item = (&'data K, &'data mut V);
@@ -232,7 +234,7 @@ impl<'data, K: Sync, V: Send, A: Allocator> SourceDescriptor
 }
 
 // HashSet.into_par_iter()
-impl<T: Send, S, A: Allocator + Sync> IntoParallelSource for HashSet<T, S, A> {
+impl<T: Send, S, A: Allocator> IntoParallelSource for HashSet<T, S, A> {
     type Item = T;
     type Source = HashSetParallelSource<T, S, A>;
 
@@ -246,7 +248,7 @@ pub struct HashSetParallelSource<T, S, A: Allocator> {
     hash_set: HashSet<T, S, A>,
 }
 
-impl<T: Send, S, A: Allocator + Sync> ParallelSource for HashSetParallelSource<T, S, A> {
+impl<T: Send, S, A: Allocator> ParallelSource for HashSetParallelSource<T, S, A> {
     type Item = T;
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
@@ -349,7 +351,7 @@ impl<T, A: Allocator> Drop for HashSetSourceDescriptor<T, A> {
 }
 
 // HashMap.into_par_iter()
-impl<K: Send, V: Send, S, A: Allocator + Sync> IntoParallelSource for HashMap<K, V, S, A> {
+impl<K: Send, V: Send, S, A: Allocator> IntoParallelSource for HashMap<K, V, S, A> {
     type Item = (K, V);
     type Source = HashMapParallelSource<K, V, S, A>;
 
@@ -363,9 +365,7 @@ pub struct HashMapParallelSource<K, V, S, A: Allocator> {
     hash_map: HashMap<K, V, S, A>,
 }
 
-impl<K: Send, V: Send, S, A: Allocator + Sync> ParallelSource
-    for HashMapParallelSource<K, V, S, A>
-{
+impl<K: Send, V: Send, S, A: Allocator> ParallelSource for HashMapParallelSource<K, V, S, A> {
     type Item = (K, V);
 
     fn descriptor(self) -> impl SourceDescriptor<Item = Self::Item> + Sync {
@@ -469,26 +469,72 @@ impl<K, V, A: Allocator> Drop for HashMapSourceDescriptor<K, V, A> {
 mod raw_table_wrapper {
     use crate::raw::{Allocator, RawTable};
 
-    pub(super) struct HashSet<T, A: Allocator> {
-        pub(super) inner: RawTable<(T, ()), A>,
+    /// Helper to implement HashSet::par_iter().
+    pub(super) struct HashSetRef<'data, T, A: Allocator> {
+        pub(super) inner: &'data RawTable<(T, ()), A>,
     }
 
-    // TODO: Does the Allocator need to be Sync too?
-    unsafe impl<T: Send, A: Allocator + Sync> Sync for HashSet<T, A> {}
+    // SAFETY:
+    // - This wrapper type is shared with worker threads, that extract references of type `&T`.
+    //   This requires `&T: Send`. Therefore, this wrapper is Sync if and only if `T` is Sync.
+    // - The allocator doesn't need any Send/Sync bounds, because the parallel iterators neither
+    //   allocate nor deallocate the hash table.
+    unsafe impl<T: Sync, A: Allocator> Sync for HashSetRef<'_, T, A> {}
 
-    pub(super) struct HashMap<K, V, A: Allocator> {
-        pub(super) inner: RawTable<(K, V), A>,
+    /// Helper to implement HashMap::par_iter().
+    pub(super) struct HashMapRef<'data, K, V, A: Allocator> {
+        pub(super) inner: &'data RawTable<(K, V), A>,
     }
 
-    // TODO: Does the Allocator need to be Sync too?
-    unsafe impl<K: Send, V: Send, A: Allocator + Sync> Sync for HashMap<K, V, A> {}
+    // SAFETY:
+    // - This wrapper type is shared with worker threads, that extract references of type
+    //   `(&K, &V)`. This requires `(&K, &V): Send`. Therefore, this wrapper is Sync if and only
+    //   if `K` and `V` are Sync.
+    // - The allocator doesn't need any Send/Sync bounds, because the parallel iterators neither
+    //   allocate nor deallocate the hash table.
+    unsafe impl<K: Sync, V: Sync, A: Allocator> Sync for HashMapRef<'_, K, V, A> {}
 
+    /// Helper to implement HashMap::par_iter_mut().
     pub(super) struct HashMapRefMut<'data, K, V, A: Allocator> {
         pub(super) inner: &'data RawTable<(K, V), A>,
     }
 
-    // TODO: Does the Allocator need to be Sync too?
-    unsafe impl<'data, K: Sync, V: Send, A: Allocator + Sync> Sync for HashMapRefMut<'data, K, V, A> {}
+    // SAFETY:
+    // - This wrapper type is shared with worker threads, that extract references of type
+    //   `(&K, &mut V)`. This requires `(&K, &mut V): Send`. Therefore, this wrapper is Sync if
+    //   and only if `K` is Sync and `V` is Send.
+    // - The allocator doesn't need any Send/Sync bounds, because the parallel iterators neither
+    //   allocate nor deallocate the hash table.
+    unsafe impl<K: Sync, V: Send, A: Allocator> Sync for HashMapRefMut<'_, K, V, A> {}
+
+    /// Helper to implement HashSet::into_par_iter().
+    pub(super) struct HashSet<T, A: Allocator> {
+        pub(super) inner: RawTable<(T, ()), A>,
+    }
+
+    // SAFETY:
+    // - This wrapper type is shared with worker threads, that extract values of type `T`.
+    //   Therefore, this wrapper is Sync if and only if `T` is Send.
+    // - The allocator doesn't need any Send/Sync bounds, because the parallel iterators neither
+    //   allocate nor deallocate the hash table. Note that `HashSetSourceDescriptor::drop`
+    //   deallocates the hash table, but that's unrelated to this Sync bound (`drop()` takes a
+    //   `&mut self` input, so only Send bounds are relevant for that).
+    unsafe impl<T: Send, A: Allocator> Sync for HashSet<T, A> {}
+
+    /// Helper to implement HashMap::into_par_iter().
+    pub(super) struct HashMap<K, V, A: Allocator> {
+        pub(super) inner: RawTable<(K, V), A>,
+    }
+
+    // SAFETY:
+    // - This wrapper type is shared with worker threads, that extract values of type `(K, V)`.
+    //   This requires `(K, V): Send`. Therefore, this wrapper is Sync if and only if `K` and `V`
+    //   are Send.
+    // - The allocator doesn't need any Send/Sync bounds, because the parallel iterators neither
+    //   allocate nor deallocate the hash table.  Note that `HashMapSourceDescriptor::drop`
+    //   deallocates the hash table, but that's unrelated to this Sync bound (`drop()` takes a
+    //   `&mut self` input, so only Send bounds are relevant for that).
+    unsafe impl<K: Send, V: Send, A: Allocator> Sync for HashMap<K, V, A> {}
 }
 
 #[cfg(test)]
