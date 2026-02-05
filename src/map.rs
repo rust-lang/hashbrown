@@ -950,6 +950,22 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     {
         ExtractIf {
             f,
+            inner: self.extractor(),
+        }
+    }
+
+    /// Returns an iterator-like struct which can be used to extract entries
+    /// from the map based upon a function.
+    ///
+    /// This is required to implement [`ExtractIf`] efficiently for derived
+    /// containers because our current MSRV does not allow naming the types of
+    /// closures.
+    ///
+    /// See [`Extractor`] for examples on how to efficiently use this
+    /// iterator.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn extractor(&mut self) -> Extractor<'_, K, V, A> {
+        Extractor {
             inner: RawExtractIf {
                 iter: unsafe { self.table.iter() },
                 table: &mut self.table,
@@ -2579,7 +2595,7 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
 #[must_use = "Iterators are lazy unless consumed"]
 pub struct ExtractIf<'a, K, V, F, A: Allocator = Global> {
     f: F,
-    inner: RawExtractIf<'a, (K, V), A>,
+    inner: Extractor<'a, K, V, A>,
 }
 
 impl<K, V, F, A> Iterator for ExtractIf<'_, K, V, F, A>
@@ -2591,16 +2607,81 @@ where
 
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next(|&mut (ref k, ref mut v)| (self.f)(k, v))
+        self.inner.next(&mut self.f)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+impl<K, V, F> FusedIterator for ExtractIf<'_, K, V, F> where F: FnMut(&K, &mut V) -> bool {}
+
+/// An iterator-like struct which can be used to extract entries from a map
+/// based upon a function.
+///
+/// This is required to implement [`ExtractIf`] efficiently for derived
+/// containers because our current MSRV does not allow naming the types of
+/// closures.
+///
+/// This `struct` is created by [`HashMap::extractor`].
+///
+/// # Examples
+///
+/// We can use the extractor to create a version of [`ExtractIf`] which passes
+/// an immutable reference instead of a mutable one:
+///
+/// ```
+/// use std::iter::FusedIterator;
+/// use hashbrown::HashMap;
+/// use hashbrown::hash_map::Extractor;
+///
+/// struct ExtractIfImmutable<'a, K, V, F> {
+///     inner: Extractor<'a, K, V>,
+///     f: F,
+/// }
+/// impl<'a, K, V, F> Iterator for ExtractIfImmutable<'a, K, V, F>
+/// where
+///     F: FnMut(&K, &V) -> bool
+/// {
+///     type Item = (K, V);
+///     fn next(&mut self) -> Option<(K, V)> {
+///         self.inner.next(|key, val| (self.f)(key, val))
+///     }
+///     fn size_hint(&self) -> (usize, Option<usize>) {
+///         self.inner.size_hint()
+///     }
+/// }
+/// impl<'a, K, V, F> FusedIterator for ExtractIfImmutable<'a, K, V, F>
+/// where
+///     F: FnMut(&K, &V) -> bool
+/// {}
+///
+/// let mut map = HashMap::from([(1, 2), (2, 1)]);
+/// let mut iter = ExtractIfImmutable { inner: map.extractor(), f: |k: &u32, v: &u32| *k == 1 };
+/// assert_eq!(iter.collect::<Vec<_>>(), &[(1, 2)]);
+/// assert_eq!(map.iter().collect::<Vec<_>>(), &[(&2, &1)]);
+/// ```
+#[must_use = "Iterators are lazy unless consumed"]
+pub struct Extractor<'a, K, V, A: Allocator = Global> {
+    inner: RawExtractIf<'a, (K, V), A>,
+}
+impl<'a, K, V, A: Allocator> Extractor<'a, K, V, A> {
+    /// Extracts elements from the table based upon a function.
+    ///
+    /// This can be used to implement [`Iterator::next`].
+    pub fn next<F>(&mut self, mut f: F) -> Option<(K, V)>
+    where
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        self.inner.next(|(k, v)| f(k, v))
+    }
+
+    /// Returns the equivalent of [`Iterator::size_hint`] for the extractor.
+    pub fn size_hint(&self) -> (usize, Option<usize>) {
         (0, self.inner.iter.size_hint().1)
     }
 }
-
-impl<K, V, F> FusedIterator for ExtractIf<'_, K, V, F> where F: FnMut(&K, &mut V) -> bool {}
 
 /// A mutable iterator over the values of a `HashMap` in arbitrary order.
 /// The iterator element type is `&'a mut V`.
