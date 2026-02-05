@@ -1382,6 +1382,21 @@ where
     {
         ExtractIf {
             f,
+            inner: self.extractor(),
+        }
+    }
+
+    /// Returns an iterator-like struct which can be used to extract elements
+    /// from the table based upon a function.
+    ///
+    /// This is required to implement [`ExtractIf`] efficiently for derived
+    /// containers because our current MSRV does not allow naming the types of
+    /// closures.
+    ///
+    /// See [`Extractor`] for examples on how to efficiently use this
+    /// iterator.
+    pub fn extractor(&mut self) -> Extractor<'_, T, A> {
+        Extractor {
             inner: RawExtractIf {
                 iter: unsafe { self.raw.iter() },
                 table: &mut self.raw,
@@ -3150,7 +3165,7 @@ impl<T: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, T, A> {
 #[must_use = "Iterators are lazy unless consumed"]
 pub struct ExtractIf<'a, T, F, A: Allocator = Global> {
     f: F,
-    inner: RawExtractIf<'a, T, A>,
+    inner: Extractor<'a, T, A>,
 }
 
 impl<T, F, A: Allocator> Iterator for ExtractIf<'_, T, F, A>
@@ -3161,16 +3176,88 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next(|val| (self.f)(val))
+        self.inner.next(&mut self.f)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, self.inner.iter.size_hint().1)
+        self.inner.size_hint()
     }
 }
 
 impl<T, F, A: Allocator> FusedIterator for ExtractIf<'_, T, F, A> where F: FnMut(&mut T) -> bool {}
+
+/// An iterator-like struct which can be used to extract elements from a table
+/// based upon a function.
+///
+/// This is required to implement [`ExtractIf`] efficiently for derived
+/// containers because our current MSRV does not allow naming the types of
+/// closures.
+///
+/// This `struct` is created by [`HashTable::extractor`].
+///
+/// # Examples
+///
+/// We can use the extractor to create a version of [`ExtractIf`] which passes
+/// an immutable reference instead of a mutable one:
+///
+/// ```
+/// use std::hash::BuildHasher;
+/// use std::iter::FusedIterator;
+/// use hashbrown::{DefaultHashBuilder, HashTable};
+/// use hashbrown::hash_table::Extractor;
+///
+/// struct ExtractIfImmutable<'a, T, F> {
+///     inner: Extractor<'a, T>,
+///     f: F,
+/// }
+/// impl<'a, T, F> Iterator for ExtractIfImmutable<'a, T, F>
+/// where
+///     F: FnMut(&T) -> bool
+/// {
+///     type Item = T;
+///     fn next(&mut self) -> Option<T> {
+///         self.inner.next(|val| (self.f)(val))
+///     }
+///     fn size_hint(&self) -> (usize, Option<usize>) {
+///         self.inner.size_hint()
+///     }
+/// }
+/// impl<'a, T, F> FusedIterator for ExtractIfImmutable<'a, T, F>
+/// where
+///     F: FnMut(&T) -> bool
+/// {}
+///
+/// let mut table = HashTable::new();
+/// let hasher = DefaultHashBuilder::default();
+/// let hasher = |val: &_| hasher.hash_one(val);
+/// table.insert_unique(hasher(&1), 1, hasher);
+/// table.insert_unique(hasher(&2), 2, hasher);
+///
+/// let mut iter = ExtractIfImmutable { inner: table.extractor(), f: |x: &u32| *x == 1 };
+/// assert_eq!(iter.collect::<Vec<_>>(), &[1]);
+/// assert_eq!(table.iter().collect::<Vec<_>>(), &[&2]);
+/// ```
+#[must_use = "Iterators are lazy unless consumed"]
+pub struct Extractor<'a, T, A: Allocator = Global> {
+    inner: RawExtractIf<'a, T, A>,
+}
+impl<'a, T, A: Allocator> Extractor<'a, T, A> {
+    /// Extracts elements from the table based upon a function.
+    ///
+    /// This can be used to implement [`Iterator::next`].
+    pub fn next<F>(&mut self, f: F) -> Option<T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        self.inner.next(f)
+    }
+
+    /// Returns the equivalent of [`Iterator::size_hint`] for the extractor.
+    pub fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, self.inner.iter.size_hint().1)
+    }
+}
 
 #[cfg(test)]
 mod tests {

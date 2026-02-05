@@ -8,7 +8,6 @@ use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, 
 use super::map::{self, HashMap, Keys};
 use crate::DefaultHashBuilder;
 use crate::alloc::{Allocator, Global};
-use crate::raw::RawExtractIf;
 
 // Future Optimization (FIXME!)
 // =============================
@@ -400,10 +399,7 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
     {
         ExtractIf {
             f,
-            inner: RawExtractIf {
-                iter: unsafe { self.map.table.iter() },
-                table: &mut self.map.table,
-            },
+            inner: self.map.extractor(),
         }
     }
 
@@ -1649,7 +1645,7 @@ pub struct Drain<'a, K, A: Allocator = Global> {
 #[must_use = "Iterators are lazy unless consumed"]
 pub struct ExtractIf<'a, K, F, A: Allocator = Global> {
     f: F,
-    inner: RawExtractIf<'a, (K, ()), A>,
+    inner: map::Extractor<'a, K, (), A>,
 }
 
 /// A lazy iterator producing elements in the intersection of `HashSet`s.
@@ -1885,13 +1881,13 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
-            .next(|&mut (ref k, ())| (self.f)(k))
+            .next(|k, _: &mut ()| (self.f)(k))
             .map(|(k, ())| k)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, self.inner.iter.size_hint().1)
+        self.inner.size_hint()
     }
 }
 
