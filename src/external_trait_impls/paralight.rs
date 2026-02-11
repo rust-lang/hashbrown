@@ -4,7 +4,7 @@
     clippy::undocumented_unsafe_blocks
 )]
 
-use crate::raw::Allocator;
+use crate::alloc::Allocator;
 use crate::{HashMap, HashSet};
 use paralight::iter::{
     IntoParallelRefMutSource, IntoParallelRefSource, IntoParallelSource, ParallelSource,
@@ -477,7 +477,8 @@ impl<K, V, A: Allocator> Drop for HashMapSourceDescriptor<K, V, A> {
 }
 
 mod raw_table_wrapper {
-    use crate::raw::{Allocator, RawTable};
+    use crate::alloc::Allocator;
+    use crate::raw::RawTable;
 
     /// Helper to implement HashSet::par_iter().
     pub(super) struct HashSetRef<'data, T, A: Allocator> {
@@ -550,12 +551,12 @@ mod raw_table_wrapper {
 #[cfg(test)]
 mod test {
     use super::*;
-    use alloc::boxed::Box;
     use core::cell::Cell;
     use core::ops::Deref;
     use paralight::iter::{ParallelIteratorExt, ParallelSourceExt};
     use paralight::threads::{CpuPinningPolicy, RangeStrategy, ThreadCount, ThreadPoolBuilder};
     use std::hash::{Hash, Hasher};
+    use stdalloc::boxed::Box;
 
     // A cell that implements Hash.
     #[derive(PartialEq, Eq)]
