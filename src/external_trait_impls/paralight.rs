@@ -8,7 +8,7 @@ use crate::raw::Allocator;
 use crate::{HashMap, HashSet};
 use paralight::iter::{
     IntoParallelRefMutSource, IntoParallelRefSource, IntoParallelSource, ParallelSource,
-    SourceCleanup, SourceDescriptor,
+    SimpleSourceDescriptor, SourceCleanup, SourceDescriptor,
 };
 
 // HashSet.par_iter()
@@ -56,10 +56,12 @@ impl<T: Sync, A: Allocator> SourceCleanup for HashSetRefSourceDescriptor<'_, T, 
     }
 }
 
-impl<'data, T: Sync, A: Allocator> SourceDescriptor for HashSetRefSourceDescriptor<'data, T, A> {
+impl<'data, T: Sync, A: Allocator> SimpleSourceDescriptor
+    for HashSetRefSourceDescriptor<'data, T, A>
+{
     type Item = &'data T;
 
-    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
+    unsafe fn simple_fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: The passed index is less than the number of buckets. This is
         // ensured by the safety preconditions of `fetch_item()`, given that
@@ -129,12 +131,12 @@ impl<K: Sync, V: Sync, A: Allocator> SourceCleanup for HashMapRefSourceDescripto
     }
 }
 
-impl<'data, K: Sync, V: Sync, A: Allocator> SourceDescriptor
+impl<'data, K: Sync, V: Sync, A: Allocator> SimpleSourceDescriptor
     for HashMapRefSourceDescriptor<'data, K, V, A>
 {
     type Item = &'data (K, V);
 
-    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
+    unsafe fn simple_fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: The passed index is less than the number of buckets. This is
         // ensured by the safety preconditions of `fetch_item()`, given that
@@ -203,12 +205,12 @@ impl<K: Sync, V: Send, A: Allocator> SourceCleanup for HashMapRefMutSourceDescri
     }
 }
 
-impl<'data, K: Sync, V: Send, A: Allocator> SourceDescriptor
+impl<'data, K: Sync, V: Send, A: Allocator> SimpleSourceDescriptor
     for HashMapRefMutSourceDescriptor<'data, K, V, A>
 {
     type Item = (&'data K, &'data mut V);
 
-    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
+    unsafe fn simple_fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: The passed index is less than the number of buckets. This is
         // ensured by the safety preconditions of `fetch_item()`, given that
@@ -310,10 +312,10 @@ impl<T: Send, A: Allocator> SourceCleanup for HashSetSourceDescriptor<T, A> {
     }
 }
 
-impl<T: Send, A: Allocator> SourceDescriptor for HashSetSourceDescriptor<T, A> {
+impl<T: Send, A: Allocator> SimpleSourceDescriptor for HashSetSourceDescriptor<T, A> {
     type Item = T;
 
-    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
+    unsafe fn simple_fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: The passed index is less than the number of buckets. This is
         // ensured by the safety preconditions of `fetch_item()`, given that
@@ -428,10 +430,10 @@ impl<K: Send, V: Send, A: Allocator> SourceCleanup for HashMapSourceDescriptor<K
     }
 }
 
-impl<K: Send, V: Send, A: Allocator> SourceDescriptor for HashMapSourceDescriptor<K, V, A> {
+impl<K: Send, V: Send, A: Allocator> SimpleSourceDescriptor for HashMapSourceDescriptor<K, V, A> {
     type Item = (K, V);
 
-    unsafe fn fetch_item(&self, index: usize) -> Option<Self::Item> {
+    unsafe fn simple_fetch_item(&self, index: usize) -> Option<Self::Item> {
         debug_assert!(index < self.len());
         // SAFETY: The passed index is less than the number of buckets. This is
         // ensured by the safety preconditions of `fetch_item()`, given that
