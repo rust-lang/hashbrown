@@ -870,9 +870,8 @@ impl<T, A: Allocator> RawTable<T, A> {
         // elements. If the calculation overflows then the requested bucket
         // count must be larger than what we have right and nothing needs to be
         // done.
-        let min_buckets = match capacity_to_buckets(min_size, Self::TABLE_LAYOUT) {
-            Some(buckets) => buckets,
-            None => return,
+        let Some(min_buckets) = capacity_to_buckets(min_size, Self::TABLE_LAYOUT) else {
+            return;
         };
 
         // If we have more buckets than we need, shrink the table.
@@ -1468,11 +1467,11 @@ impl<T, A: Allocator> RawTable<T, A> {
             None
         } else {
             // Avoid `Option::unwrap_or_else` because it bloats LLVM IR.
-            let (layout, ctrl_offset) =
-                match Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets()) {
-                    Some(lco) => lco,
-                    None => unsafe { hint::unreachable_unchecked() },
-                };
+            let Some((layout, ctrl_offset)) =
+                Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets())
+            else {
+                unsafe { hint::unreachable_unchecked() }
+            };
             Some((
                 unsafe { NonNull::new_unchecked(self.table.ctrl.as_ptr().sub(ctrl_offset).cast()) },
                 layout,
@@ -1584,9 +1583,8 @@ impl RawTableInner {
         debug_assert!(buckets.is_power_of_two());
 
         // Avoid `Option::ok_or_else` because it bloats LLVM IR.
-        let (layout, mut ctrl_offset) = match table_layout.calculate_layout_for(buckets) {
-            Some(lco) => lco,
-            None => return Err(fallibility.capacity_overflow()),
+        let Some((layout, mut ctrl_offset)) = table_layout.calculate_layout_for(buckets) else {
+            return Err(fallibility.capacity_overflow());
         };
 
         let ptr: NonNull<u8> = match do_alloc(alloc, layout) {
@@ -1598,11 +1596,11 @@ impl RawTableInner {
                     let x = maximum_buckets_in(block.len(), table_layout, Group::WIDTH);
                     debug_assert!(x >= buckets);
                     // Calculate the new ctrl_offset.
-                    let (oversized_layout, oversized_ctrl_offset) =
-                        match table_layout.calculate_layout_for(x) {
-                            Some(lco) => lco,
-                            None => unsafe { hint::unreachable_unchecked() },
-                        };
+                    let Some((oversized_layout, oversized_ctrl_offset)) =
+                        table_layout.calculate_layout_for(x)
+                    else {
+                        unsafe { hint::unreachable_unchecked() }
+                    };
                     debug_assert!(oversized_layout.size() <= block.len());
                     debug_assert!(oversized_ctrl_offset >= ctrl_offset);
                     ctrl_offset = oversized_ctrl_offset;
@@ -2767,9 +2765,8 @@ impl RawTableInner {
         A: Allocator,
     {
         // Avoid `Option::ok_or_else` because it bloats LLVM IR.
-        let new_items = match self.items.checked_add(additional) {
-            Some(new_items) => new_items,
-            None => return Err(fallibility.capacity_overflow()),
+        let Some(new_items) = self.items.checked_add(additional) else {
+            return Err(fallibility.capacity_overflow());
         };
         let full_capacity = bucket_mask_to_capacity(self.bucket_mask);
         if new_items <= full_capacity / 2 {
@@ -3159,9 +3156,9 @@ impl RawTableInner {
         );
 
         // Avoid `Option::unwrap_or_else` because it bloats LLVM IR.
-        let (layout, ctrl_offset) = match table_layout.calculate_layout_for(self.num_buckets()) {
-            Some(lco) => lco,
-            None => unsafe { hint::unreachable_unchecked() },
+        let Some((layout, ctrl_offset)) = table_layout.calculate_layout_for(self.num_buckets())
+        else {
+            unsafe { hint::unreachable_unchecked() }
         };
         (
             // SAFETY: The caller must uphold the safety contract for `allocation_info` method.
@@ -3318,13 +3315,12 @@ impl<T: Clone, A: Allocator + Clone> Clone for RawTable<T, A> {
                 // SAFETY: This is safe as we are taking the size of an already allocated table
                 // and therefore capacity overflow cannot occur, `self.table.num_buckets()` is power
                 // of two and all allocator errors will be caught inside `RawTableInner::new_uninitialized`.
-                let mut new_table = match Self::new_uninitialized(
+                let Ok(mut new_table) = Self::new_uninitialized(
                     self.alloc.clone(),
                     self.table.num_buckets(),
                     Fallibility::Infallible,
-                ) {
-                    Ok(table) => table,
-                    Err(_) => hint::unreachable_unchecked(),
+                ) else {
+                    hint::unreachable_unchecked()
                 };
 
                 // Cloning elements may fail (the clone function may panic). But we don't
@@ -3375,14 +3371,13 @@ impl<T: Clone, A: Allocator + Clone> Clone for RawTable<T, A> {
 
                 // If necessary, resize our table to match the source.
                 if self_.num_buckets() != source.num_buckets() {
-                    let new_inner = match RawTableInner::new_uninitialized(
+                    let Ok(new_inner) = RawTableInner::new_uninitialized(
                         &self_.alloc,
                         Self::TABLE_LAYOUT,
                         source.num_buckets(),
                         Fallibility::Infallible,
-                    ) {
-                        Ok(table) => table,
-                        Err(_) => hint::unreachable_unchecked(),
+                    ) else {
+                        hint::unreachable_unchecked()
                     };
                     // Replace the old inner with new uninitialized one. It's ok, since if something gets
                     // wrong `ScopeGuard` will initialize all control bytes and leave empty table.
