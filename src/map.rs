@@ -5042,7 +5042,7 @@ mod test_map {
     use std::borrow::ToOwned;
     use std::cell::RefCell;
     use std::vec::Vec;
-    use stdalloc::string::{String, ToString};
+    use stdalloc::string::String;
     use stdalloc::sync::Arc;
 
     #[test]
@@ -6353,7 +6353,7 @@ mod test_map {
         );
 
         let ys = map.get_disjoint_key_value_mut(["bar", "dip"]);
-        assert_eq!(ys, [Some((&"bar".to_string(), &mut 10)), None]);
+        assert_eq!(ys, [Some((&"bar".to_owned(), &mut 10)), None]);
     }
 
     #[test]
@@ -6499,7 +6499,7 @@ mod test_map {
         {
             let mut map = HashMap::with_capacity_in(10, MyAlloc::new(dropped.clone()));
             for i in 0..10 {
-                map.entry(i).or_insert_with(|| "i".to_string());
+                map.entry(i).or_insert_with(|| "i".to_owned());
             }
 
             for (k, v) in map {
