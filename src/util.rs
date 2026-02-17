@@ -1,11 +1,12 @@
-// FIXME: Replace with `core::hint::{likely, unlikely}` once they are stable.
+// FIXME: Replace with `core::hint::{likely, unlikely, cold_path}` once they are stable.
 #[cfg(feature = "nightly")]
 pub(crate) use core::intrinsics::{likely, unlikely};
 
-#[cfg(not(feature = "nightly"))]
+/// Hints to the compiler that the code path calling this function is cold
+/// (unlikely to be executed).
 #[inline(always)]
 #[cold]
-fn cold_path() {}
+pub(crate) fn cold_path() {}
 
 #[cfg(not(feature = "nightly"))]
 #[inline(always)]

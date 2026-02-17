@@ -1,7 +1,7 @@
 use crate::TryReserveError;
 use crate::control::{BitMaskIter, Group, Tag, TagSliceExt};
 use crate::scopeguard::{ScopeGuard, guard};
-use crate::util::{invalid_mut, likely, unlikely};
+use crate::util::{cold_path, invalid_mut, likely, unlikely};
 use core::array;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
@@ -1030,32 +1030,68 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
-    /// Inserts a new element into the table, and returns its raw bucket.
+    /// Finds an insert slot for the given hash if there is spare capacity.
     ///
-    /// This does not check if the given element already exists in the table.
-    #[cfg_attr(feature = "inline-more", inline)]
-    pub(crate) fn insert(&mut self, hash: u64, value: T, hasher: impl Fn(&T) -> u64) -> Bucket<T> {
+    /// Returns `None` if the table is at its load-factor limit and would need
+    /// to grow.
+    #[inline]
+    fn find_insert_slot(&self, hash: u64) -> Option<usize> {
         unsafe {
             // SAFETY:
             // 1. The [`RawTableInner`] must already have properly initialized control bytes since
             //    we will never expose `RawTable::new_uninitialized` in a public API.
-            //
-            // 2. We reserve additional space (if necessary) right after calling this function.
-            let mut index = self.table.find_insert_index(hash);
+            let index = self.table.find_insert_index(hash);
 
             // We can avoid growing the table once we have reached our load factor if we are replacing
             // a tombstone. This works since the number of EMPTY slots does not change in this case.
             //
             // SAFETY: The function is guaranteed to return an index in the range `0..=self.num_buckets()`.
             let old_ctrl = *self.table.ctrl(index);
-            if unlikely(self.table.growth_left == 0 && old_ctrl.special_is_empty()) {
+            if self.table.growth_left == 0 && old_ctrl.special_is_empty() {
+                None
+            } else {
+                Some(index)
+            }
+        }
+    }
+
+    /// Inserts a new element into the table, and returns its raw bucket.
+    ///
+    /// This does not check if the given element already exists in the table.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub(crate) fn insert(&mut self, hash: u64, value: T, hasher: impl Fn(&T) -> u64) -> Bucket<T> {
+        let index = match self.find_insert_slot(hash) {
+            Some(index) => index,
+            None => {
+                cold_path();
                 self.reserve(1, hasher);
                 // SAFETY: We know for sure that `RawTableInner` has control bytes
                 // initialized and that there is extra space in the table.
-                index = self.table.find_insert_index(hash);
+                unsafe { self.table.find_insert_index(hash) }
             }
+        };
+        // SAFETY: `index` came from either `find_insert_slot` (which returns a
+        // valid `find_insert_index` result) or from a fresh `find_insert_index`
+        // after reserving space.
+        unsafe { self.insert_at_index(hash, index, value) }
+    }
 
-            self.insert_at_index(hash, index, value)
+    /// Tries to insert a new element into the table without growing.
+    ///
+    /// Returns `Ok(Bucket)` on success, or `Err(value)` if the table is at
+    /// its load-factor limit and would need to grow.
+    ///
+    /// This does not check if the given element already exists in the table.
+    #[inline]
+    pub(crate) fn try_insert_within_capacity(
+        &mut self,
+        hash: u64,
+        value: T,
+    ) -> Result<Bucket<T>, T> {
+        match self.find_insert_slot(hash) {
+            // SAFETY: `index` is a valid insert slot from `find_insert_slot`.
+            Some(index) => Ok(unsafe { self.insert_at_index(hash, index, value) }),
+            None => Err(value),
         }
     }
 
