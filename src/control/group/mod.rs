@@ -32,7 +32,15 @@ cfg_if! {
     ))] {
         mod lsx;
         use lsx as imp;
-    } else {
+    } else if #[cfg(all(
+        target_arch = "wasm32",
+        target_feature = "simd128",
+        not(miri),
+    ))] {
+        mod wasm;
+        use wasm as imp;
+    }
+     else {
         mod generic;
         use generic as imp;
     }
