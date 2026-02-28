@@ -59,6 +59,7 @@ This crate has the following Cargo features:
 - `nightly`: Enables nightly-only features including: `#[may_dangle]`.
 - `serde`: Enables serde serialization support.
 - `rayon`: Enables rayon parallel iterator support.
+- `paralight`: Enables paralight parallel iterator support.
 - `equivalent`: Allows comparisons to be customized with the `Equivalent` trait. (enabled by default)
 - `raw-entry`: Enables access to the deprecated `RawEntry` API.
 - `inline-more`: Adds inline hints to most functions, improving run-time performance at the cost

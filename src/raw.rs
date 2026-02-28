@@ -1469,6 +1469,36 @@ impl<T, A: Allocator> RawTable<T, A> {
         mem::forget(self);
         alloc
     }
+
+    /// Deallocates the table without dropping any element.
+    ///
+    /// # Safety
+    ///
+    /// It's the responsibility of the caller to ensure that all elements
+    /// have been separately read and dropped. However, the caller doesn't
+    /// need to clear the control bytes beforehand.
+    #[cfg(feature = "paralight")]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub(crate) unsafe fn deallocate_cleared_table(&mut self) {
+        if self.table.is_empty_singleton() {
+            return;
+        }
+
+        // Avoid `Option::unwrap_or_else` because it bloats LLVM IR.
+        let (layout, ctrl_offset) =
+            match Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets()) {
+                Some(lco) => lco,
+                None => unsafe { hint::unreachable_unchecked() },
+            };
+        let ptr =
+            unsafe { NonNull::new_unchecked(self.table.ctrl.as_ptr().sub(ctrl_offset).cast()) };
+        unsafe {
+            self.alloc.deallocate(ptr, layout);
+        }
+
+        // Reset the table, so that it can be dropped without double free.
+        self.table = RawTableInner::NEW;
+    }
 }
 
 unsafe impl<T, A: Allocator> Send for RawTable<T, A>

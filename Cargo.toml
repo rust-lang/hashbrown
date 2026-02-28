@@ -46,6 +46,7 @@ str_to_string = "warn"
 foldhash = { version = "0.2.0", default-features = false, optional = true }
 
 # For external trait impls
+paralight = { version = "0.0.11", optional = true }
 rayon = { version = "1.9.0", optional = true }
 serde_core = { version = "1.0.221", default-features = false, optional = true }
 
@@ -113,5 +114,5 @@ default-hasher = ["dep:foldhash"]
 inline-more = []
 
 [package.metadata.docs.rs]
-features = ["nightly", "rayon", "serde", "raw-entry"]
+features = ["nightly", "paralight", "rayon", "serde", "raw-entry"]
 rustdoc-args = ["--generate-link-to-definition"]
