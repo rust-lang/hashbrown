@@ -1,5 +1,6 @@
 use crate::alloc::{Allocator, Global};
-use crate::raw::{Bucket, RawDrain, RawExtractIf, RawIntoIter, RawIter, RawTable};
+use crate::raw::RawExtractIf;
+use crate::table::{self, HashTable};
 use crate::{DefaultHashBuilder, Equivalent, TryReserveError};
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
@@ -181,7 +182,7 @@ pub use crate::raw_entry::*;
 /// ```
 pub struct HashMap<K, V, S = DefaultHashBuilder, A: Allocator = Global> {
     pub(crate) hash_builder: S,
-    pub(crate) table: RawTable<(K, V), A>,
+    pub(crate) table: HashTable<(K, V), A>,
 }
 
 impl<K: Clone, V: Clone, S: Clone, A: Allocator + Clone> Clone for HashMap<K, V, S, A> {
@@ -201,7 +202,7 @@ impl<K: Clone, V: Clone, S: Clone, A: Allocator + Clone> Clone for HashMap<K, V,
 }
 
 /// Ensures that a single closure type across uses of this which, in turn prevents multiple
-/// instances of any functions like `RawTable::reserve` from being generated
+/// instances of any functions like `HashTable::reserve` from being generated
 #[cfg_attr(feature = "inline-more", inline)]
 pub(crate) fn make_hasher<Q, V, S>(hash_builder: &S) -> impl Fn(&(Q, V)) -> u64 + '_
 where
@@ -212,7 +213,7 @@ where
 }
 
 /// Ensures that a single closure type across uses of this which, in turn prevents multiple
-/// instances of any functions like `RawTable::reserve` from being generated
+/// instances of any functions like `HashTable::reserve` from being generated
 #[cfg_attr(feature = "inline-more", inline)]
 pub(crate) fn equivalent_key<Q, K, V>(k: &Q) -> impl Fn(&(K, V)) -> bool + '_
 where
@@ -222,7 +223,7 @@ where
 }
 
 /// Ensures that a single closure type across uses of this which, in turn prevents multiple
-/// instances of any functions like `RawTable::reserve` from being generated
+/// instances of any functions like `HashTable::reserve` from being generated
 #[cfg_attr(feature = "inline-more", inline)]
 #[cfg(feature = "raw-entry")]
 pub(crate) fn equivalent<Q, K>(k: &Q) -> impl Fn(&K) -> bool + '_
@@ -434,7 +435,7 @@ impl<K, V, S> HashMap<K, V, S> {
     pub const fn with_hasher(hash_builder: S) -> Self {
         Self {
             hash_builder,
-            table: RawTable::new(),
+            table: HashTable::new(),
         }
     }
 
@@ -474,7 +475,7 @@ impl<K, V, S> HashMap<K, V, S> {
     pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> Self {
         Self {
             hash_builder,
-            table: RawTable::with_capacity(capacity),
+            table: HashTable::with_capacity(capacity),
         }
     }
 }
@@ -517,7 +518,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     pub const fn with_hasher_in(hash_builder: S, alloc: A) -> Self {
         Self {
             hash_builder,
-            table: RawTable::new_in(alloc),
+            table: HashTable::new_in(alloc),
         }
     }
 
@@ -551,7 +552,7 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     pub fn with_capacity_and_hasher_in(capacity: usize, hash_builder: S, alloc: A) -> Self {
         Self {
             hash_builder,
-            table: RawTable::with_capacity_in(capacity, alloc),
+            table: HashTable::with_capacity_in(capacity, alloc),
         }
     }
 
@@ -723,12 +724,8 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter(&self) -> Iter<'_, K, V> {
-        // Here we tie the lifetime of self to the iter.
-        unsafe {
-            Iter {
-                inner: self.table.iter(),
-                marker: PhantomData,
-            }
+        Iter {
+            inner: self.table.iter(),
         }
     }
 
@@ -768,12 +765,9 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        // Here we tie the lifetime of self to the iter.
-        unsafe {
-            IterMut {
-                inner: self.table.iter(),
-                marker: PhantomData,
-            }
+        IterMut {
+            inner: self.table.unsafe_iter(),
+            marker: PhantomData,
         }
     }
 
@@ -889,15 +883,8 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     where
         F: FnMut(&K, &mut V) -> bool,
     {
-        // Here we only use `iter` as a temporary, preventing use-after-free
-        unsafe {
-            for item in self.table.iter() {
-                let &mut (ref key, ref mut value) = item.as_mut();
-                if !f(key, value) {
-                    self.table.erase(item);
-                }
-            }
-        }
+        self.table
+            .retain(move |&mut (ref key, ref mut val)| f(key, val))
     }
 
     /// Drains elements which are true under the given predicate,
@@ -951,8 +938,8 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
         ExtractIf {
             f,
             inner: RawExtractIf {
-                iter: unsafe { self.table.iter() },
-                table: &mut self.table,
+                iter: unsafe { self.table.raw.iter() },
+                table: &mut self.table.raw,
             },
         }
     }
@@ -1198,18 +1185,17 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S, A> {
         let hash = make_hash::<K, S>(&self.hash_builder, &key);
-        if let Some(elem) = self.table.find(hash, equivalent_key(&key)) {
-            Entry::Occupied(OccupiedEntry {
-                hash,
-                elem,
-                table: self,
-            })
-        } else {
-            Entry::Vacant(VacantEntry {
-                hash,
+        let hasher = make_hasher(&self.hash_builder);
+        match self.table.entry(hash, equivalent_key(&key), hasher) {
+            table::Entry::Occupied(inner) => Entry::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
+            table::Entry::Vacant(inner) => Entry::Vacant(VacantEntry {
+                inner,
                 key,
-                table: self,
-            })
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -1236,18 +1222,17 @@ where
         Q: Hash + Equivalent<K> + ?Sized,
     {
         let hash = make_hash::<Q, S>(&self.hash_builder, key);
-        if let Some(elem) = self.table.find(hash, equivalent_key(key)) {
-            EntryRef::Occupied(OccupiedEntry {
-                hash,
-                elem,
-                table: self,
-            })
-        } else {
-            EntryRef::Vacant(VacantEntryRef {
-                hash,
+        let hasher = make_hasher(&self.hash_builder);
+        match self.table.entry(hash, equivalent_key(key), hasher) {
+            table::Entry::Occupied(inner) => EntryRef::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
+            table::Entry::Vacant(inner) => EntryRef::Vacant(VacantEntryRef {
+                inner,
                 key,
-                table: self,
-            })
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -1275,7 +1260,7 @@ where
         // Avoid `Option::map` because it bloats LLVM IR.
         if !self.table.is_empty() {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.get(hash, equivalent_key(k)) {
+            match self.table.find(hash, equivalent_key(k)) {
                 Some((_, v)) => Some(v),
                 None => None,
             }
@@ -1308,7 +1293,7 @@ where
         // Avoid `Option::map` because it bloats LLVM IR.
         if !self.table.is_empty() {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.get(hash, equivalent_key(k)) {
+            match self.table.find(hash, equivalent_key(k)) {
                 Some((key, value)) => Some((key, value)),
                 None => None,
             }
@@ -1345,7 +1330,7 @@ where
         // Avoid `Option::map` because it bloats LLVM IR.
         if !self.table.is_empty() {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.get_mut(hash, equivalent_key(k)) {
+            match self.table.find_mut(hash, equivalent_key(k)) {
                 Some(&mut (ref key, ref mut value)) => Some((key, value)),
                 None => None,
             }
@@ -1377,7 +1362,7 @@ where
     {
         if !self.table.is_empty() {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            self.table.get(hash, equivalent_key(k)).is_some()
+            self.table.find(hash, equivalent_key(k)).is_some()
         } else {
             false
         }
@@ -1411,7 +1396,7 @@ where
         // Avoid `Option::map` because it bloats LLVM IR.
         if !self.table.is_empty() {
             let hash = make_hash::<Q, S>(&self.hash_builder, k);
-            match self.table.get_mut(hash, equivalent_key(k)) {
+            match self.table.find_mut(hash, equivalent_key(k)) {
                 Some(&mut (_, ref mut v)) => Some(v),
                 None => None,
             }
@@ -1796,18 +1781,10 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let hash = make_hash(&self.hash_builder, &k);
-        let equivalent = equivalent_key(&k);
-        let hasher = make_hasher(&self.hash_builder);
-        match self
-            .table
-            .find_or_find_insert_index(hash, equivalent, hasher)
-        {
-            Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().1 }, v)),
-            Err(index) => {
-                unsafe {
-                    self.table.insert_at_index(hash, index, (k, v));
-                }
+        match self.entry(k) {
+            Entry::Occupied(mut entry) => Some(entry.insert(v)),
+            Entry::Vacant(entry) => {
+                entry.insert(v);
                 None
             }
         }
@@ -1873,10 +1850,10 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn insert_unique_unchecked(&mut self, k: K, v: V) -> (&K, &mut V) {
         let hash = make_hash::<K, S>(&self.hash_builder, &k);
-        let bucket = self
-            .table
-            .insert(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
-        let (k_ref, v_ref) = unsafe { bucket.as_mut() };
+        let entry =
+            self.table
+                .insert_unique(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
+        let (k_ref, v_ref) = entry.into_mut();
         (k_ref, v_ref)
     }
 
@@ -1986,7 +1963,7 @@ where
         Q: Hash + Equivalent<K> + ?Sized,
     {
         let hash = make_hash::<Q, S>(&self.hash_builder, k);
-        self.table.remove_entry(hash, equivalent_key(k))
+        self.table.raw.remove_entry(hash, equivalent_key(k))
     }
 
     /// Returns the total amount of memory allocated internally by the hash
@@ -2143,8 +2120,7 @@ where
 /// assert_eq!(iter.next(), None);
 /// ```
 pub struct Iter<'a, K, V> {
-    inner: RawIter<(K, V)>,
-    marker: PhantomData<(&'a K, &'a V)>,
+    inner: table::Iter<'a, (K, V)>,
 }
 
 // FIXME(#26925) Remove in favor of `#[derive(Clone)]`
@@ -2153,7 +2129,6 @@ impl<K, V> Clone for Iter<'_, K, V> {
     fn clone(&self) -> Self {
         Iter {
             inner: self.inner.clone(),
-            marker: PhantomData,
         }
     }
 }
@@ -2191,7 +2166,7 @@ impl<K: Debug, V: Debug> fmt::Debug for Iter<'_, K, V> {
 /// assert_eq!(map.get(&2).unwrap(), &"Two Mississippi".to_owned());
 /// ```
 pub struct IterMut<'a, K, V> {
-    inner: RawIter<(K, V)>,
+    inner: table::UnsafeIter<'a, (K, V)>,
     // To ensure invariance with respect to V
     marker: PhantomData<(&'a K, &'a mut V)>,
 }
@@ -2206,8 +2181,7 @@ impl<K, V> IterMut<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
-            inner: self.inner.clone(),
-            marker: PhantomData,
+            inner: self.inner.iter(),
         }
     }
 }
@@ -2241,7 +2215,7 @@ impl<K, V> IterMut<'_, K, V> {
 /// assert_eq!(iter.next(), None);
 /// ```
 pub struct IntoIter<K, V, A: Allocator = Global> {
-    inner: RawIntoIter<(K, V), A>,
+    inner: table::IntoIter<(K, V), A>,
 }
 
 impl<K, V, A: Allocator> IntoIter<K, V, A> {
@@ -2250,7 +2224,6 @@ impl<K, V, A: Allocator> IntoIter<K, V, A> {
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             inner: self.inner.iter(),
-            marker: PhantomData,
         }
     }
 }
@@ -2532,7 +2505,7 @@ impl<K, V: Debug> fmt::Debug for Values<'_, K, V> {
 /// assert_eq!(drain_iter.next(), None);
 /// ```
 pub struct Drain<'a, K, V, A: Allocator = Global> {
-    inner: RawDrain<'a, (K, V), A>,
+    inner: table::Drain<'a, (K, V), A>,
 }
 
 impl<K, V, A: Allocator> Drain<'_, K, V, A> {
@@ -2541,7 +2514,6 @@ impl<K, V, A: Allocator> Drain<'_, K, V, A> {
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             inner: self.inner.iter(),
-            marker: PhantomData,
         }
     }
 }
@@ -2757,9 +2729,8 @@ impl<K: Debug, V: Debug, S, A: Allocator> Debug for Entry<'_, K, V, S, A> {
 /// assert_eq!(map.len(), 2);
 /// ```
 pub struct OccupiedEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator = Global> {
-    hash: u64,
-    elem: Bucket<(K, V)>,
-    table: &'a mut HashMap<K, V, S, A>,
+    inner: table::OccupiedEntry<'a, (K, V), A>,
+    marker: PhantomData<&'a mut S>,
 }
 
 unsafe impl<K, V, S, A> Send for OccupiedEntry<'_, K, V, S, A>
@@ -2817,9 +2788,9 @@ impl<K: Debug, V: Debug, S, A: Allocator> Debug for OccupiedEntry<'_, K, V, S, A
 /// assert!(map[&"b"] == 20 && map.len() == 2);
 /// ```
 pub struct VacantEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator = Global> {
-    hash: u64,
+    inner: table::VacantEntry<'a, (K, V), A>,
     key: K,
-    table: &'a mut HashMap<K, V, S, A>,
+    marker: PhantomData<&'a mut S>,
 }
 
 impl<K: Debug, V, S, A: Allocator> Debug for VacantEntry<'_, K, V, S, A> {
@@ -2955,9 +2926,9 @@ where
 /// assert!(map["b"] == 20 && map.len() == 2);
 /// ```
 pub struct VacantEntryRef<'map, 'key, K, Q: ?Sized, V, S, A: Allocator = Global> {
-    hash: u64,
+    inner: table::VacantEntry<'map, (K, V), A>,
     key: &'key Q,
-    table: &'map mut HashMap<K, V, S, A>,
+    marker: PhantomData<&'map mut S>,
 }
 
 impl<K, Q, V, S, A> Debug for VacantEntryRef<'_, '_, K, Q, V, S, A>
@@ -3126,21 +3097,17 @@ impl<K, V> Default for Iter<'_, K, V> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
-            marker: PhantomData,
         }
     }
 }
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
+impl<'a, K: 'a, V: 'a> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     #[cfg_attr(feature = "inline-more", inline)]
     fn next(&mut self) -> Option<(&'a K, &'a V)> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.inner.next() {
-            Some(x) => unsafe {
-                let r = x.as_ref();
-                Some((&r.0, &r.1))
-            },
+            Some(x) => Some((&x.0, &x.1)),
             None => None,
         }
     }
@@ -3154,20 +3121,17 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
         Self: Sized,
         F: FnMut(B, Self::Item) -> B,
     {
-        self.inner.fold(init, |acc, x| unsafe {
-            let (k, v) = x.as_ref();
-            f(acc, (k, v))
-        })
+        self.inner.fold(init, |acc, (k, v)| f(acc, (k, v)))
     }
 }
-impl<K, V> ExactSizeIterator for Iter<'_, K, V> {
+impl<'a, K: 'a, V: 'a> ExactSizeIterator for Iter<'a, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<K, V> FusedIterator for Iter<'_, K, V> {}
+impl<'a, K: 'a, V: 'a> FusedIterator for Iter<'a, K, V> {}
 
 impl<K, V> Default for IterMut<'_, K, V> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -3185,10 +3149,12 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.inner.next() {
-            Some(x) => unsafe {
-                let r = x.as_mut();
-                Some((&r.0, &mut r.1))
-            },
+            Some(mut x) => {
+                // SAFETY: We match the lifetime of the original iterator
+                // with the correct variance provided by PhantomData.
+                let &mut (ref k, ref mut v) = unsafe { x.as_mut() };
+                Some((k, v))
+            }
             None => None,
         }
     }
@@ -3202,8 +3168,10 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
         Self: Sized,
         F: FnMut(B, Self::Item) -> B,
     {
-        self.inner.fold(init, |acc, x| unsafe {
-            let (k, v) = x.as_mut();
+        self.inner.fold(init, |acc, mut x| {
+            // SAFETY: We match the lifetime of the original iterator
+            // with the correct variance provided by PhantomData.
+            let &mut (ref k, ref mut v) = unsafe { x.as_mut() };
             f(acc, (k, v))
         })
     }
@@ -3773,7 +3741,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn key(&self) -> &K {
-        unsafe { &self.elem.as_ref().0 }
+        &self.inner.get().0
     }
 
     /// Replaces the key in the entry with a new one.
@@ -3864,7 +3832,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub unsafe fn replace_key_unchecked(&mut self, key: K) -> K {
-        mem::replace(unsafe { &mut self.elem.as_mut().0 }, key)
+        mem::replace(&mut self.inner.get_mut().0, key)
     }
 
     /// Take the ownership of the key and value from the map.
@@ -3893,7 +3861,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(self) -> (K, V) {
-        unsafe { self.table.table.remove(self.elem).0 }
+        self.inner.remove().0
     }
 
     /// Gets a reference to the value in the entry.
@@ -3914,7 +3882,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get(&self) -> &V {
-        unsafe { &self.elem.as_ref().1 }
+        &self.inner.get().1
     }
 
     /// Gets a mutable reference to the value in the entry.
@@ -3946,7 +3914,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_mut(&mut self) -> &mut V {
-        unsafe { &mut self.elem.as_mut().1 }
+        &mut self.inner.get_mut().1
     }
 
     /// Converts the `OccupiedEntry` into a mutable reference to the value in the entry
@@ -3977,7 +3945,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_mut(self) -> &'a mut V {
-        unsafe { &mut self.elem.as_mut().1 }
+        &mut self.inner.into_mut().1
     }
 
     /// Converts the `OccupiedEntry` into a reference to the key and a
@@ -4012,7 +3980,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn into_entry(self) -> (&'a K, &'a mut V) {
-        let (key, val) = unsafe { self.elem.as_mut() };
+        let (key, val) = self.inner.into_mut();
         (key, val)
     }
 
@@ -4119,29 +4087,25 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     where
         F: FnOnce(&K, V) -> Option<V>,
     {
-        unsafe {
-            let mut spare_key = None;
+        let mut spare_key = None;
 
-            self.table
-                .table
-                .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    if let Some(new_value) = f(&key, value) {
-                        Some((key, new_value))
-                    } else {
-                        spare_key = Some(key);
-                        None
-                    }
-                });
-
-            if let Some(key) = spare_key {
-                Entry::Vacant(VacantEntry {
-                    hash: self.hash,
-                    key,
-                    table: self.table,
-                })
+        match self.inner.replace_entry_with(|(key, value)| {
+            if let Some(new_value) = f(&key, value) {
+                Some((key, new_value))
             } else {
-                Entry::Occupied(self)
+                spare_key = Some(key);
+                None
             }
+        }) {
+            table::Entry::Vacant(inner) => Entry::Vacant(VacantEntry {
+                inner,
+                key: unsafe { spare_key.unwrap_unchecked() },
+                marker: PhantomData,
+            }),
+            table::Entry::Occupied(inner) => Entry::Occupied(OccupiedEntry {
+                inner,
+                marker: PhantomData,
+            }),
         }
     }
 
@@ -4209,13 +4173,7 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let table = &mut self.table.table;
-        let entry = table.insert_entry(
-            self.hash,
-            (self.key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
-        &mut entry.1
+        &mut self.inner.insert((self.key, value)).into_mut().1
     }
 
     /// Sets the value of the entry with the [`VacantEntry`]'s key,
@@ -4240,15 +4198,9 @@ impl<'a, K, V, S, A: Allocator> VacantEntry<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let elem = self.table.table.insert(
-            self.hash,
-            (self.key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((self.key, value)),
+            marker: PhantomData,
         }
     }
 
@@ -4562,13 +4514,7 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         Q: ToOwned<Owned = K>,
         S: BuildHasher,
     {
-        let table = &mut self.table.table;
-        let entry = table.insert_entry(
-            self.hash,
-            (self.key.to_owned(), value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
-        &mut entry.1
+        &mut self.inner.insert((self.key.to_owned(), value)).into_mut().1
     }
 
     /// Sets the key and value of the entry and returns a mutable reference to
@@ -4677,15 +4623,9 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         Q: ToOwned<Owned = K>,
         S: BuildHasher,
     {
-        let elem = self.table.table.insert(
-            self.hash,
-            (self.key.to_owned(), value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((self.key.to_owned(), value)),
+            marker: PhantomData,
         }
     }
 
@@ -4776,15 +4716,9 @@ impl<'map, 'key, K, Q: ?Sized, V, S, A: Allocator> VacantEntryRef<'map, 'key, K,
         K: Hash,
         S: BuildHasher,
     {
-        let elem = self.table.table.insert(
-            self.hash,
-            (key, value),
-            make_hasher::<_, V, S>(&self.table.hash_builder),
-        );
         OccupiedEntry {
-            hash: self.hash,
-            elem,
-            table: self.table,
+            inner: self.inner.insert((key, value)),
+            marker: PhantomData,
         }
     }
 
@@ -6623,7 +6557,7 @@ mod test_map {
                         "panic_in_drop can be set with a type that doesn't need to be dropped",
                     ));
                 }
-                guard.table.insert(
+                guard.table.raw.insert(
                     count,
                     (
                         count,
@@ -6798,8 +6732,8 @@ mod test_map {
             // the returned `RawIter / RawIterRange` iterator.
             assert_eq!(map.len(), 0);
             assert_eq!(map.iter().count(), 0);
-            assert_eq!(unsafe { map.table.iter().count() }, 0);
-            assert_eq!(unsafe { map.table.iter().iter.count() }, 0);
+            assert_eq!(unsafe { map.table.raw.iter().count() }, 0);
+            assert_eq!(unsafe { map.table.raw.iter().iter.count() }, 0);
 
             for idx in 0..map.table.num_buckets() {
                 let idx = idx as u64;
@@ -6867,8 +6801,8 @@ mod test_map {
             // the returned `RawIter / RawIterRange` iterator.
             assert_eq!(map.len(), 0);
             assert_eq!(map.iter().count(), 0);
-            assert_eq!(unsafe { map.table.iter().count() }, 0);
-            assert_eq!(unsafe { map.table.iter().iter.count() }, 0);
+            assert_eq!(unsafe { map.table.raw.iter().count() }, 0);
+            assert_eq!(unsafe { map.table.raw.iter().iter.count() }, 0);
 
             for idx in 0..map.table.num_buckets() {
                 let idx = idx as u64;

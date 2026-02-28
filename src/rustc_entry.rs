@@ -34,10 +34,10 @@ where
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn rustc_entry(&mut self, key: K) -> RustcEntry<'_, K, V, A> {
         let hash = make_hash(&self.hash_builder, &key);
-        if let Some(elem) = self.table.find(hash, |q| q.0.eq(&key)) {
+        if let Some(elem) = self.table.raw.find(hash, |q| q.0.eq(&key)) {
             RustcEntry::Occupied(RustcOccupiedEntry {
                 elem,
-                table: &mut self.table,
+                table: &mut self.table.raw,
             })
         } else {
             // Ideally we would put this in VacantEntry::insert, but Entry is not
@@ -48,7 +48,7 @@ where
             RustcEntry::Vacant(RustcVacantEntry {
                 hash,
                 key,
-                table: &mut self.table,
+                table: &mut self.table.raw,
             })
         }
     }

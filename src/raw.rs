@@ -1048,19 +1048,6 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
-    /// Inserts a new element into the table, and returns a mutable reference to it.
-    ///
-    /// This does not check if the given element already exists in the table.
-    #[cfg_attr(feature = "inline-more", inline)]
-    pub(crate) fn insert_entry(
-        &mut self,
-        hash: u64,
-        value: T,
-        hasher: impl Fn(&T) -> u64,
-    ) -> &mut T {
-        unsafe { self.insert(hash, value, hasher).as_mut() }
-    }
-
     /// Inserts a new element into the table, without growing the table.
     ///
     /// There must be enough space in the table to insert the new element.

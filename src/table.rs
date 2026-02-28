@@ -66,6 +66,7 @@ impl<T> HashTable<T, Global> {
     /// assert_eq!(table.len(), 0);
     /// assert_eq!(table.capacity(), 0);
     /// ```
+    #[cfg_attr(feature = "rustc-dep-of-std", rustc_const_stable_indirect)]
     pub const fn new() -> Self {
         Self {
             raw: RawTable::new(),
@@ -133,6 +134,7 @@ where
     /// #     test()
     /// # }
     /// ```
+    #[cfg_attr(feature = "rustc-dep-of-std", rustc_const_stable_indirect)]
     pub const fn new_in(alloc: A) -> Self {
         Self {
             raw: RawTable::new_in(alloc),
