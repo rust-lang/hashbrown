@@ -1818,7 +1818,9 @@ impl RawTableInner {
             // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
             //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let ctrl = unsafe { self.ctrl(probe_seq.pos) };
+            let group = unsafe { Group::load(ctrl) };
+            let empty = unsafe { Group::load_and_match_empty(ctrl) };
 
             for bit in group.match_tag(tag_hash) {
                 let index = (probe_seq.pos + bit) & self.bucket_mask;
@@ -1837,7 +1839,7 @@ impl RawTableInner {
             if let Some(insert_index) = insert_index {
                 // Only stop the search if the group contains at least one empty element.
                 // Otherwise, the element that we are looking for might be in a following group.
-                if likely(group.match_empty().any_bit_set()) {
+                if likely(empty.any_bit_set()) {
                     // We must have found a insert slot by now, since the current group contains at
                     // least one. For tables smaller than the group width, there will still be an
                     // empty element in the current (and only) group due to the load factor.
@@ -2024,7 +2026,13 @@ impl RawTableInner {
             // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
             //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new_in).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let ctrl = unsafe { self.ctrl(probe_seq.pos) };
+            let group = unsafe { Group::load(ctrl) };
+
+            // Compute the empty check early so it can execute in parallel
+            // with the tag comparison. On some backends this uses a
+            // separate code path optimized for the empty check.
+            let empty = unsafe { Group::load_and_match_empty(ctrl) };
 
             for bit in group.match_tag(tag_hash) {
                 // This is the same as `(probe_seq.pos + bit) % self.num_buckets()` because the number
@@ -2036,7 +2044,7 @@ impl RawTableInner {
                 }
             }
 
-            if likely(group.match_empty().any_bit_set()) {
+            if likely(empty.any_bit_set()) {
                 return None;
             }
 

@@ -119,6 +119,17 @@ impl Group {
         BitMask((self.0 & (self.0 << 1) & repeat(Tag::DELETED)).to_le())
     }
 
+    /// Loads the group and checks for empty tags. On the generic backend
+    /// this just delegates to `Group::load` + `match_empty`.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid to read `Group::WIDTH` bytes from.
+    #[inline]
+    pub(crate) unsafe fn load_and_match_empty(ptr: *const Tag) -> BitMask {
+        unsafe { Group::load(ptr).match_empty() }
+    }
+
     /// Returns a `BitMask` indicating all tags in the group which are
     /// `EMPTY` or `DELETED`.
     #[inline]
