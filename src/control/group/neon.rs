@@ -79,6 +79,23 @@ impl Group {
         self.match_tag(Tag::EMPTY)
     }
 
+    /// Loads the group as a scalar `u64` and checks for empty tags using
+    /// SWAR bit operations. This is faster than the NEON `match_empty`
+    /// followed by `any_bit_set` because it avoids the slow `umaxv`
+    /// horizontal vector reduction that LLVM emits for that pattern.
+    ///
+    /// EMPTY (0xFF) is the only tag with both top bits set, so
+    /// `(x & (x << 1) & 0x8080..80) != 0` detects empty bytes.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid to read `Group::WIDTH` bytes from.
+    #[inline]
+    pub(crate) unsafe fn load_and_match_empty(ptr: *const Tag) -> BitMask {
+        let ctrl = unsafe { ptr.cast::<u64>().read_unaligned() };
+        BitMask(ctrl & (ctrl << 1) & BITMASK_ITER_MASK)
+    }
+
     /// Returns a `BitMask` indicating all tags in the group which are
     /// `EMPTY` or `DELETED`.
     #[inline]

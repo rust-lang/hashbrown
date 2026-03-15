@@ -92,6 +92,18 @@ impl Group {
         self.match_tag(Tag::EMPTY)
     }
 
+    /// Loads the group and checks for empty tags. On SSE2 this just
+    /// delegates to `Group::load` + `match_empty` since the movemask
+    /// codegen is already optimal.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid to read `Group::WIDTH` bytes from.
+    #[inline]
+    pub(crate) unsafe fn load_and_match_empty(ptr: *const Tag) -> BitMask {
+        unsafe { Group::load(ptr).match_empty() }
+    }
+
     /// Returns a `BitMask` indicating all tags in the group which are
     /// `EMPTY` or `DELETED`.
     #[inline]
