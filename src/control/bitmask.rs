@@ -21,10 +21,29 @@ pub(crate) struct BitMask(pub(crate) BitMaskWord);
 
 #[expect(clippy::use_self)]
 impl BitMask {
-    /// Returns a new `BitMask` with the lowest bit removed.
+    /// A BitMask only requires each element (group of bits) to be non-zero.
+    /// However for iteration we need each element to only contain 1 bit.
+    ///
+    /// On some SIMD backends (notably ARM NEON), a single logical match may occupy
+    /// multiple raw bits, so manual iteration must normalize the mask first.
+    ///
+    /// # Warning
+    /// Call this before manually iterating with `lowest_set_bit` and
+    /// `remove_lowest_bit`.
     #[inline]
     #[must_use]
-    fn remove_lowest_bit(self) -> Self {
+    pub(crate) fn normalize_for_iteration(self) -> Self {
+        BitMask(self.0 & BITMASK_ITER_MASK)
+    }
+
+    /// Returns a new `BitMask` with the lowest bit removed.
+    ///
+    /// # Warning
+    /// If you are using this in a loop to iterate over matches, you **must**
+    /// call [`BitMask::normalize_for_iteration`] on the mask first.
+    #[inline]
+    #[must_use]
+    pub(crate) fn remove_lowest_bit(self) -> Self {
         BitMask(self.0 & (self.0 - 1))
     }
 
@@ -35,6 +54,10 @@ impl BitMask {
     }
 
     /// Returns the first set bit in the `BitMask`, if there is one.
+    ///
+    /// # Warning
+    /// If you are using this in a loop to iterate over matches, you **must**
+    /// call [`BitMask::normalize_for_iteration`] on the mask first.
     #[inline]
     pub(crate) fn lowest_set_bit(self) -> Option<usize> {
         if let Some(nonzero) = NonZeroBitMaskWord::new(self.0) {
@@ -84,9 +107,7 @@ impl IntoIterator for BitMask {
 
     #[inline]
     fn into_iter(self) -> BitMaskIter {
-        // A BitMask only requires each element (group of bits) to be non-zero.
-        // However for iteration we need each element to only contain 1 bit.
-        BitMaskIter(BitMask(self.0 & BITMASK_ITER_MASK))
+        BitMaskIter(self.normalize_for_iteration())
     }
 }
 
@@ -103,5 +124,52 @@ impl Iterator for BitMaskIter {
         let bit = self.0.lowest_set_bit()?;
         self.0 = self.0.remove_lowest_bit();
         Some(bit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::control::{Group, Tag};
+    use stdalloc::vec::Vec;
+
+    #[test]
+    fn match_tag_iteration_yields_expected_positions() {
+        let tag = Tag::full(0);
+        let positions = [1, Group::WIDTH / 2, Group::WIDTH - 1];
+
+        let mut ctrl = [Tag::EMPTY; Group::WIDTH];
+        for i in positions {
+            ctrl[i] = tag;
+        }
+
+        let got = unsafe { Group::load(ctrl.as_ptr().cast()) }
+            .match_tag(tag)
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        assert_eq!(got.as_slice(), &positions);
+    }
+
+    #[test]
+    fn normalized_manual_drain_yields_expected_positions() {
+        let tag = Tag::full(0);
+        let positions = [1, Group::WIDTH / 2, Group::WIDTH - 1];
+
+        let mut ctrl = [Tag::EMPTY; Group::WIDTH];
+        for i in positions {
+            ctrl[i] = tag;
+        }
+
+        let mut mask = unsafe { Group::load(ctrl.as_ptr().cast()) }
+            .match_tag(tag)
+            .normalize_for_iteration();
+
+        let mut got = Vec::new();
+        while let Some(bit) = mask.lowest_set_bit() {
+            got.push(bit);
+            mask = mask.remove_lowest_bit();
+        }
+
+        assert_eq!(got.as_slice(), &positions);
     }
 }

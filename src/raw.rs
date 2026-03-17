@@ -1799,7 +1799,10 @@ impl RawTableInner {
     ) -> Result<usize, usize> {
         let mut insert_index = None;
 
+        // Snapshot loop-invariant state once so the probe loop only updates the probe position.
         let tag_hash = Tag::full(hash);
+        let bucket_mask = self.bucket_mask;
+        let ctrl = self.ctrl.as_ptr();
         let mut probe_seq = self.probe_seq(hash);
 
         loop {
@@ -1818,10 +1821,12 @@ impl RawTableInner {
             // * Also, even if `RawTableInner` is not already allocated, `ProbeSeq.pos` will
             //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new).
-            let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let group_first = probe_seq.pos;
+            let group = unsafe { Group::load(ctrl.add(group_first).cast()) };
+            let tag_matches = group.match_tag(tag_hash);
 
-            for bit in group.match_tag(tag_hash) {
-                let index = (probe_seq.pos + bit) & self.bucket_mask;
+            for bit in tag_matches {
+                let index = (group_first + bit) & bucket_mask;
 
                 if likely(eq(index)) {
                     return Ok(index);
@@ -2006,7 +2011,9 @@ impl RawTableInner {
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline(always)]
     unsafe fn find_inner(&self, hash: u64, eq: &mut dyn FnMut(usize) -> bool) -> Option<usize> {
+        // Snapshot loop-invariant state once so the probe loop only updates the probe position.
         let tag_hash = Tag::full(hash);
+        let bucket_mask = self.bucket_mask;
         let mut probe_seq = self.probe_seq(hash);
 
         loop {
@@ -2025,18 +2032,24 @@ impl RawTableInner {
             //   always return "0" (zero), so Group::load will read unaligned `Group::static_empty()`
             //   bytes, which is safe (see RawTableInner::new_in).
             let group = unsafe { Group::load(self.ctrl(probe_seq.pos)) };
+            let has_empty = group.match_empty().any_bit_set();
+            let mut tag_matches = group.match_tag(tag_hash);
 
-            for bit in group.match_tag(tag_hash) {
-                // This is the same as `(probe_seq.pos + bit) % self.num_buckets()` because the number
-                // of buckets is a power of two, and `self.bucket_mask = self.num_buckets() - 1`.
-                let index = (probe_seq.pos + bit) & self.bucket_mask;
+            if unlikely(tag_matches.any_bit_set()) {
+                // Normalize before manual draining because some backends, notably NEON, can
+                // represent one logical match with multiple raw bits.
+                tag_matches = tag_matches.normalize_for_iteration();
+                while let Some(bit) = tag_matches.lowest_set_bit() {
+                    tag_matches = tag_matches.remove_lowest_bit();
+                    let index = (probe_seq.pos + bit) & bucket_mask;
 
-                if likely(eq(index)) {
-                    return Some(index);
+                    if likely(eq(index)) {
+                        return Some(index);
+                    }
                 }
             }
 
-            if likely(group.match_empty().any_bit_set()) {
+            if likely(has_empty) {
                 return None;
             }
 
@@ -4412,6 +4425,146 @@ mod test_map {
                 assert_eq!(table.find(i, |x| *x == i).map(|b| b.read()), Some(i));
             }
             assert!(table.find(i + 100, |x| *x == i + 100).is_none());
+        }
+    }
+
+    #[test]
+    fn find_through_tombstone_collision_cluster() {
+        let mut table = RawTable::with_capacity(4);
+        let hash = 0;
+
+        for key in 0..3 {
+            table.insert(hash, (key, key + 10), |_| hash);
+        }
+
+        let (removed_val, _) =
+            unsafe { table.remove(table.find(hash, |&(key, _)| key == 0).unwrap()) };
+        assert_eq!(removed_val, (0, 10));
+
+        unsafe {
+            assert_eq!(
+                table
+                    .find(hash, |&(key, _)| key == 2)
+                    .map(|bucket| bucket.read()),
+                Some((2, 12))
+            );
+        }
+        assert!(table.find(hash, |&(key, _)| key == 9).is_none());
+    }
+
+    #[test]
+    fn duplicate_insert_prefers_existing_entry_over_tombstone() {
+        let mut table = RawTable::with_capacity(4);
+        let hash = 0;
+
+        for key in 0..3 {
+            table.insert(hash, (key, key + 10), |_| hash);
+        }
+
+        let (_, deleted_index) =
+            unsafe { table.remove(table.find(hash, |&(key, _)| key == 0).unwrap()) };
+        let len_before = table.len();
+
+        let bucket = table
+            .find_or_find_insert_index(hash, |&(key, _)| key == 2, |_| hash)
+            .expect("returned insert slot for duplicate key");
+
+        unsafe {
+            assert_eq!(table.bucket_index(&bucket), 2);
+            bucket.as_mut().1 = 99;
+        }
+
+        assert_eq!(table.len(), len_before);
+        unsafe {
+            assert_eq!(
+                table
+                    .find(hash, |&(key, _)| key == 2)
+                    .map(|bucket| bucket.read()),
+                Some((2, 99))
+            );
+        }
+
+        let inserted = match table.find_or_find_insert_index(hash, |&(key, _)| key == 9, |_| hash) {
+            Ok(_) => panic!("reported existing bucket for new colliding key"),
+            Err(index) => unsafe { table.insert_at_index(hash, index, (9, 19)) },
+        };
+
+        assert_eq!(unsafe { table.bucket_index(&inserted) }, deleted_index);
+        assert_eq!(table.len(), len_before + 1);
+        unsafe {
+            assert_eq!(
+                table
+                    .find(hash, |&(key, _)| key == 9)
+                    .map(|bucket| bucket.read()),
+                Some((9, 19))
+            );
+            assert_eq!(
+                table
+                    .find(hash, |&(key, _)| key == 1)
+                    .map(|bucket| bucket.read()),
+                Some((1, 11))
+            );
+            assert_eq!(
+                table
+                    .find(hash, |&(key, _)| key == 2)
+                    .map(|bucket| bucket.read()),
+                Some((2, 99))
+            );
+        }
+    }
+
+    #[test]
+    fn find_calls_predicate_once_for_single_matching_bucket() {
+        let mut table = RawTable::with_capacity(4);
+        let hash = 0;
+
+        table.insert(hash, (1, 11), |_| hash);
+
+        let mut calls = 0;
+        let found = table.find(hash, |&(key, _)| {
+            calls += 1;
+            key == 9
+        });
+
+        assert!(found.is_none());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn find_continues_past_full_nonmatching_group() {
+        const FIND_TEST_WANTED_TAG: u8 = 64;
+        const FIND_TEST_COLLIDERS: usize = 48;
+
+        // Put the chosen tag into the high bits used by `Tag::full` and the chosen
+        // group start into the low bits used for the initial probe position.
+        fn test_hash(group_start: usize, tag: u8) -> u64 {
+            let top_shift = (size_of::<usize>().min(size_of::<u64>()) * 8) - 7;
+            ((tag as u64) << top_shift) | group_start as u64
+        }
+
+        let mut table = RawTable::with_capacity(FIND_TEST_COLLIDERS + 1);
+
+        // Fill the target probe group with occupied entries whose tags do not
+        // match the wanted tag, so `find` must continue probing past the group.
+        for tag in (1u8..=127)
+            .filter(|&tag| tag != FIND_TEST_WANTED_TAG)
+            .take(FIND_TEST_COLLIDERS)
+        {
+            let hash = test_hash(0, tag);
+            table.insert(hash, hash, |value| *value);
+        }
+
+        // Insert the target element
+        let wanted_hash = test_hash(0, FIND_TEST_WANTED_TAG);
+        table.insert(wanted_hash, wanted_hash, |value| *value);
+
+        unsafe {
+            assert_eq!(
+                table
+                    .find(wanted_hash, |value| *value == wanted_hash)
+                    .map(|bucket| bucket.read()),
+                Some(wanted_hash)
+            );
         }
     }
 
