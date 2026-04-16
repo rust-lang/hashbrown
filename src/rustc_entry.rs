@@ -35,10 +35,13 @@ where
     pub fn rustc_entry(&mut self, key: K) -> RustcEntry<'_, K, V, A> {
         let hash = make_hash(&self.hash_builder, &key);
         if let Some(elem) = self.table.find(hash, |q| q.0.eq(&key)) {
-            RustcEntry::Occupied(RustcOccupiedEntry {
-                elem,
-                table: &mut self.table,
-            })
+            RustcEntry::Occupied(
+                RustcOccupiedEntry {
+                    elem,
+                    table: &mut self.table,
+                },
+                key,
+            )
         } else {
             // Ideally we would put this in VacantEntry::insert, but Entry is not
             // generic over the BuildHasher and adding a generic parameter would be
@@ -64,7 +67,7 @@ where
     A: Allocator,
 {
     /// An occupied entry.
-    Occupied(RustcOccupiedEntry<'a, K, V, A>),
+    Occupied(RustcOccupiedEntry<'a, K, V, A>, K),
 
     /// A vacant entry.
     Vacant(RustcVacantEntry<'a, K, V, A>),
@@ -74,7 +77,7 @@ impl<K: Debug, V: Debug, A: Allocator> Debug for RustcEntry<'_, K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Vacant(ref v) => f.debug_tuple("Entry").field(v).finish(),
-            Occupied(ref o) => f.debug_tuple("Entry").field(o).finish(),
+            Occupied(ref o, _) => f.debug_tuple("Entry").field(o).finish(),
         }
     }
 }
@@ -146,7 +149,7 @@ impl<'a, K, V, A: Allocator> RustcEntry<'a, K, V, A> {
     pub fn insert(self, value: V) -> RustcOccupiedEntry<'a, K, V, A> {
         match self {
             Vacant(entry) => entry.insert_entry(value),
-            Occupied(mut entry) => {
+            Occupied(mut entry, _) => {
                 entry.insert(value);
                 entry
             }
@@ -175,7 +178,7 @@ impl<'a, K, V, A: Allocator> RustcEntry<'a, K, V, A> {
         K: Hash,
     {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry, _) => entry.into_mut(),
             Vacant(entry) => entry.insert(default),
         }
     }
@@ -201,7 +204,7 @@ impl<'a, K, V, A: Allocator> RustcEntry<'a, K, V, A> {
         K: Hash,
     {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry, _) => entry.into_mut(),
             Vacant(entry) => entry.insert(default()),
         }
     }
@@ -219,7 +222,7 @@ impl<'a, K, V, A: Allocator> RustcEntry<'a, K, V, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn key(&self) -> &K {
         match *self {
-            Occupied(ref entry) => entry.key(),
+            Occupied(ref entry, _) => entry.key(),
             Vacant(ref entry) => entry.key(),
         }
     }
@@ -250,9 +253,9 @@ impl<'a, K, V, A: Allocator> RustcEntry<'a, K, V, A> {
         F: FnOnce(&mut V),
     {
         match self {
-            Occupied(mut entry) => {
+            Occupied(mut entry, key) => {
                 f(entry.get_mut());
-                Occupied(entry)
+                Occupied(entry, key)
             }
             Vacant(entry) => Vacant(entry),
         }
@@ -281,7 +284,7 @@ impl<'a, K, V: Default, A: Allocator> RustcEntry<'a, K, V, A> {
         K: Hash,
     {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry, _) => entry.into_mut(),
             Vacant(entry) => entry.insert(Default::default()),
         }
     }
@@ -315,7 +318,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
-    /// if let RustcEntry::Occupied(o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(o, _) = map.rustc_entry("poneyland") {
     ///     // We delete the entry from the map.
     ///     o.remove_entry();
     /// }
@@ -338,7 +341,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
-    /// if let RustcEntry::Occupied(o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(o, _) = map.rustc_entry("poneyland") {
     ///     assert_eq!(o.get(), &12);
     /// }
     /// ```
@@ -364,7 +367,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
     /// assert_eq!(map["poneyland"], 12);
-    /// if let RustcEntry::Occupied(mut o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(mut o, _) = map.rustc_entry("poneyland") {
     ///     *o.get_mut() += 10;
     ///     assert_eq!(*o.get(), 22);
     ///
@@ -396,7 +399,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
     /// assert_eq!(map["poneyland"], 12);
-    /// if let RustcEntry::Occupied(o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(o, _) = map.rustc_entry("poneyland") {
     ///     *o.into_mut() += 10;
     /// }
     ///
@@ -418,7 +421,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
-    /// if let RustcEntry::Occupied(mut o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(mut o, _) = map.rustc_entry("poneyland") {
     ///     assert_eq!(o.insert(15), 12);
     /// }
     ///
@@ -440,7 +443,7 @@ impl<'a, K, V, A: Allocator> RustcOccupiedEntry<'a, K, V, A> {
     /// let mut map: HashMap<&str, u32> = HashMap::new();
     /// map.rustc_entry("poneyland").or_insert(12);
     ///
-    /// if let RustcEntry::Occupied(o) = map.rustc_entry("poneyland") {
+    /// if let RustcEntry::Occupied(o, _) = map.rustc_entry("poneyland") {
     ///     assert_eq!(o.remove(), 12);
     /// }
     ///
