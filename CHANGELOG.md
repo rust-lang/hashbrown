@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/rust-lang/hashbrown/compare/v0.17.0...v0.17.1) - 2026-04-20
+
+### Other
+
+- Move the `RustcOccupiedError` note as requested in review
+- Add `HashMap::rustc_try_insert`
+- Merge pull request #721 from clarfonthey/branch-rename
+- Rename master to main in release-plz workflow
+- use immediate form of vori for DELETED tag mask
+- use immediate form of vslti for zero comparison
+
 ## [0.17.0](https://github.com/rust-lang/hashbrown/compare/v0.16.1...v0.17.0) - 2026-04-06
 
 ### Added
