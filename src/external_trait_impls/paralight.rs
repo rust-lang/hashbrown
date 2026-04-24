@@ -8,7 +8,7 @@ use crate::alloc::Allocator;
 use crate::{HashMap, HashSet};
 use paralight::iter::{
     IntoParallelRefMutSource, IntoParallelRefSource, IntoParallelSource, ParallelSource,
-    SimpleSourceDescriptor, SourceCleanup, SourceDescriptor,
+    RewindableSource, SimpleSourceDescriptor, SourceCleanup, SourceDescriptor,
 };
 
 // HashSet.par_iter()
@@ -26,6 +26,15 @@ impl<'data, T: Sync + 'data, S: 'data, A: Allocator + 'data> IntoParallelRefSour
 #[must_use = "iterator adaptors are lazy"]
 pub struct HashSetRefParallelSource<'data, T, S, A: Allocator> {
     hash_set: &'data HashSet<T, S, A>,
+}
+
+// SAFETY:
+// - it is safe to fetch a reference to any item an unlimited number of times
+//   and concurrently,
+// - the source doesn't need cleanup.
+unsafe impl<'data, T, S, A: Allocator> RewindableSource
+    for HashSetRefParallelSource<'data, T, S, A>
+{
 }
 
 impl<'data, T: Sync, S, A: Allocator> ParallelSource for HashSetRefParallelSource<'data, T, S, A> {
@@ -99,6 +108,15 @@ impl<'data, K: Sync + 'data, V: Sync + 'data, S: 'data, A: Allocator + 'data>
 #[must_use = "iterator adaptors are lazy"]
 pub struct HashMapRefParallelSource<'data, K, V, S, A: Allocator> {
     hash_map: &'data HashMap<K, V, S, A>,
+}
+
+// SAFETY:
+// - it is safe to fetch a reference to any (key, value) pair an unlimited
+//   number of times and concurrently,
+// - the source doesn't need cleanup.
+unsafe impl<'data, K, V, S, A: Allocator> RewindableSource
+    for HashMapRefParallelSource<'data, K, V, S, A>
+{
 }
 
 impl<'data, K: Sync, V: Sync, S, A: Allocator> ParallelSource
