@@ -1482,12 +1482,10 @@ impl<T, A: Allocator> RawTable<T, A> {
             return;
         }
 
-        // Avoid `Option::unwrap_or_else` because it bloats LLVM IR.
-        let (layout, ctrl_offset) =
-            match Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets()) {
-                Some(lco) => lco,
-                None => unsafe { hint::unreachable_unchecked() },
-            };
+        let (layout, ctrl_offset) = {
+            let option = Self::TABLE_LAYOUT.calculate_layout_for(self.table.num_buckets());
+            unsafe { option.unwrap_unchecked() }
+        };
         let ptr =
             unsafe { NonNull::new_unchecked(self.table.ctrl.as_ptr().sub(ctrl_offset).cast()) };
         unsafe {

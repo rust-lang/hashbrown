@@ -592,7 +592,7 @@ mod test {
 
     impl<T: Copy + Hash> Hash for HashCell<T> {
         fn hash<H: Hasher>(&self, state: &mut H) {
-            self.0.get().hash(state)
+            self.0.get().hash(state);
         }
     }
 
