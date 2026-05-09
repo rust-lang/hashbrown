@@ -1017,6 +1017,20 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
+    /// Returns whether insertion at the given index will exceed the table's maximum load factor.
+    ///
+    /// # Safety
+    /// Behavior is undefined if `index > self.num_buckets()`.
+    #[inline]
+    pub(crate) unsafe fn needs_growth_to_insert_at(&self, index: usize) -> bool {
+        // SAFETY: Caller guarantees that `index` is in range.
+        let old_ctrl = unsafe { *self.table.ctrl(index) };
+
+        // We can avoid growing the table once we have reached our load factor if we are replacing
+        // a tombstone. This works since the number of EMPTY slots does not change in this case.
+        self.table.growth_left == 0 && old_ctrl.special_is_empty()
+    }
+
     /// Inserts a new element into the table, and returns its raw bucket.
     ///
     /// This does not check if the given element already exists in the table.
@@ -1030,12 +1044,8 @@ impl<T, A: Allocator> RawTable<T, A> {
             // 2. We reserve additional space (if necessary) right after calling this function.
             let mut index = self.table.find_insert_index(hash);
 
-            // We can avoid growing the table once we have reached our load factor if we are replacing
-            // a tombstone. This works since the number of EMPTY slots does not change in this case.
-            //
             // SAFETY: The function is guaranteed to return an index in the range `0..=self.num_buckets()`.
-            let old_ctrl = *self.table.ctrl(index);
-            if unlikely(self.table.growth_left == 0 && old_ctrl.special_is_empty()) {
+            if unlikely(self.needs_growth_to_insert_at(index)) {
                 self.reserve(1, hasher);
                 // SAFETY: We know for sure that `RawTableInner` has control bytes
                 // initialized and that there is extra space in the table.
@@ -1112,22 +1122,17 @@ impl<T, A: Allocator> RawTable<T, A> {
 
     /// Searches for an element in the table. If the element is not found,
     /// returns `Err` with the position of a slot where an element with the
-    /// same hash could be inserted.
-    ///
-    /// This function may resize the table if additional space is required for
-    /// inserting an element.
+    /// same hash coult be inserted (if insertion can be performed without
+    /// growing the table).
     #[inline]
-    pub(crate) fn find_or_find_insert_index(
-        &mut self,
+    pub(crate) fn find_or_find_insert_index_if_available(
+        &self,
         hash: u64,
         mut eq: impl FnMut(&T) -> bool,
-        hasher: impl Fn(&T) -> u64,
-    ) -> Result<Bucket<T>, usize> {
-        self.reserve(1, hasher);
-
+    ) -> Result<Bucket<T>, Option<usize>> {
         unsafe {
             // SAFETY:
-            // 1. We know for sure that there is at least one empty `bucket` in the table.
+            // 1. Our load factor forces us to always have at least one empty `bucket` in the table.
             // 2. The [`RawTableInner`] must already have properly initialized control bytes since we will
             //    never expose `RawTable::new_uninitialized` in a public API.
             // 3. The `find_or_find_insert_index_inner` function returns the `index` of only the full bucket,
@@ -1139,9 +1144,31 @@ impl<T, A: Allocator> RawTable<T, A> {
             {
                 // SAFETY: See explanation above.
                 Ok(index) => Ok(self.bucket(index)),
-                Err(index) => Err(index),
+                Err(index) if unlikely(self.needs_growth_to_insert_at(index)) => Err(None),
+                Err(index) => Err(Some(index)),
             }
         }
+    }
+
+    /// Searches for an element in the table. If the element is not found,
+    /// returns `Err` with the position of a slot where an element with the
+    /// same hash could be inserted.
+    ///
+    /// This function may resize the table if additional space is required for
+    /// inserting an element.
+    #[inline]
+    pub(crate) fn find_or_find_insert_index(
+        &mut self,
+        hash: u64,
+        eq: impl FnMut(&T) -> bool,
+        hasher: impl Fn(&T) -> u64,
+    ) -> Result<Bucket<T>, usize> {
+        self.reserve(1, hasher);
+        self.find_or_find_insert_index_if_available(hash, eq)
+            // SAFETY:
+            // We reserved space above, so we know for sure that insertion can be performed
+            // without growing the table.
+            .map_err(|maybe_idx| unsafe { maybe_idx.unwrap_unchecked() })
     }
 
     /// Inserts a new element into the table at the given index with the given hash,
@@ -1150,8 +1177,8 @@ impl<T, A: Allocator> RawTable<T, A> {
     /// # Safety
     ///
     /// `index` must point to a slot previously returned by
-    /// `find_or_find_insert_index`, and no mutation of the table must have
-    /// occurred since that call.
+    /// `find_or_find_insert_index_if_available`, and no mutation of the table must
+    /// have occurred since that call.
     #[inline]
     pub(crate) unsafe fn insert_at_index(
         &mut self,
@@ -1168,8 +1195,8 @@ impl<T, A: Allocator> RawTable<T, A> {
     /// # Safety
     ///
     /// `index` must point to a slot previously returned by
-    /// `find_or_find_insert_index`, and no mutation of the table must have
-    /// occurred since that call.
+    /// `find_or_find_insert_index_if_available`, and no mutation of the table must
+    /// have occurred since that call.
     #[inline]
     pub(crate) unsafe fn insert_tagged_at_index(
         &mut self,
