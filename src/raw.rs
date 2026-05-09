@@ -1791,8 +1791,100 @@ impl RawTableInner {
     /// bytes outside the table range.
     ///
     /// [`undefined behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-    #[inline]
+    #[inline(always)]
     unsafe fn find_or_find_insert_index_inner(
+        &self,
+        hash: u64,
+        eq: &mut dyn FnMut(usize) -> bool,
+    ) -> Result<usize, usize> {
+        // When the Group is exactly 8 bytes (aarch64 NEON, generic 64-bit),
+        // use scalar SWAR (SIMD Within A Register) operations on a plain
+        // u64 instead of the Group SIMD abstraction. This keeps all work in
+        // GP registers, avoiding SIMD-to-GP domain-crossing penalties (e.g.,
+        // 3-cycle fmov on aarch64). The SWAR algorithms are the same ones
+        // used by the generic Group backend.
+        //
+        // The lookup path (find_inner) still uses Group for exact match_tag.
+        //
+        // For other group widths (SSE2: 16 bytes, or generic 32-bit: 4
+        // bytes) the Group abstraction is used directly.
+        if Group::WIDTH == mem::size_of::<u64>() {
+            unsafe { self.find_or_find_insert_index_inner_scalar(hash, eq) }
+        } else {
+            unsafe { self.find_or_find_insert_index_inner_simd(hash, eq) }
+        }
+    }
+
+    /// Scalar SWAR implementation for 8-byte groups. Performs match_tag,
+    /// match_empty_or_deleted, and match_empty entirely in GP registers
+    /// using the same algorithms as the generic Group backend.
+    #[inline(always)]
+    unsafe fn find_or_find_insert_index_inner_scalar(
+        &self,
+        hash: u64,
+        eq: &mut dyn FnMut(usize) -> bool,
+    ) -> Result<usize, usize> {
+        const ONES: u64 = 0x0101_0101_0101_0101;
+        const HIGH: u64 = 0x8080_8080_8080_8080;
+
+        let mut insert_index = None;
+        let tag = Tag::full(hash);
+        let tag_repeat = ONES.wrapping_mul(tag.0 as u64);
+        let mut probe_seq = self.probe_seq(hash);
+
+        loop {
+            // SAFETY: probe_seq.pos is in 0..self.num_buckets(), and the
+            // control byte array has at least num_buckets + Group::WIDTH
+            // bytes allocated, so reading 8 bytes at ctrl(pos) is safe.
+            // For unallocated tables, ctrl points to Group::static_empty().
+            let raw = unsafe { ptr::read_unaligned(self.ctrl(probe_seq.pos).cast::<u64>()) };
+
+            // Scalar match_tag (same algorithm as generic Group::match_tag).
+            let cmp = raw ^ tag_repeat;
+            let mut tag_mask = (cmp.wrapping_sub(ONES) & !cmp & HIGH).to_le();
+
+            while tag_mask != 0 {
+                let byte_idx = tag_mask.trailing_zeros() as usize / 8;
+                let index = (probe_seq.pos + byte_idx) & self.bucket_mask;
+                if likely(eq(index)) {
+                    return Ok(index);
+                }
+                tag_mask &= tag_mask - 1;
+            }
+
+            // Scalar match_empty_or_deleted: bit 7 set means EMPTY or DELETED.
+            if likely(insert_index.is_none()) {
+                let special_mask = (raw & HIGH).to_le();
+                if special_mask != 0 {
+                    let byte_idx = special_mask.trailing_zeros() as usize / 8;
+                    let idx = (probe_seq.pos + byte_idx) & self.bucket_mask;
+                    // SAFETY: idx is in 0..=self.bucket_mask.
+                    if likely(unsafe { *self.ctrl(idx) } == Tag::EMPTY) {
+                        return Err(idx);
+                    }
+                    insert_index = Some(idx);
+                }
+            }
+
+            // Scalar match_empty: EMPTY (0xFF) has both bits 7 and 6 set.
+            if let Some(insert_index) = insert_index {
+                let empty_mask = (raw & (raw << 1) & HIGH).to_le();
+                if likely(empty_mask != 0) {
+                    // SAFETY: insert_index was produced by the scan above.
+                    unsafe {
+                        return Err(self.fix_insert_index(insert_index));
+                    }
+                }
+            }
+
+            probe_seq.move_next(self.bucket_mask);
+        }
+    }
+
+    /// Group-based implementation for SSE2/LSX (16-byte groups) or the
+    /// generic backend on 32-bit (4-byte groups).
+    #[inline(always)]
+    unsafe fn find_or_find_insert_index_inner_simd(
         &self,
         hash: u64,
         eq: &mut dyn FnMut(usize) -> bool,
@@ -1832,6 +1924,19 @@ impl RawTableInner {
             // insertion slot from the group if we don't have one yet.
             if likely(insert_index.is_none()) {
                 insert_index = self.find_insert_index_in_group(&group, &probe_seq);
+
+                // When the found slot is EMPTY (not DELETED), we can stop probing
+                // immediately without computing the more expensive match_empty() on
+                // the whole group. This is the common case when there are no
+                // tombstones in the table.
+                if let Some(idx) = insert_index {
+                    // SAFETY: The index was found by `find_insert_index_in_group` which
+                    // guarantees it is in the range `0..=self.bucket_mask`, so calling
+                    // `self.ctrl(idx)` is safe.
+                    if likely(unsafe { *self.ctrl(idx) } == Tag::EMPTY) {
+                        return Err(idx);
+                    }
+                }
             }
 
             if let Some(insert_index) = insert_index {
