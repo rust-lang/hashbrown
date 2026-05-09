@@ -76,7 +76,10 @@ impl Group {
     /// `EMPTY`.
     #[inline]
     pub(crate) fn match_empty(self) -> BitMask {
-        self.match_tag(Tag::EMPTY)
+        unsafe {
+            let ctrl = neon::vget_lane_u64(neon::vreinterpret_u64_u8(self.0), 0);
+            BitMask(ctrl & (ctrl << 1) & BITMASK_ITER_MASK)
+        }
     }
 
     /// Returns a `BitMask` indicating all tags in the group which are
@@ -84,8 +87,8 @@ impl Group {
     #[inline]
     pub(crate) fn match_empty_or_deleted(self) -> BitMask {
         unsafe {
-            let cmp = neon::vcltz_s8(neon::vreinterpret_s8_u8(self.0));
-            BitMask(neon::vget_lane_u64(neon::vreinterpret_u64_u8(cmp), 0))
+            let ctrl = neon::vget_lane_u64(neon::vreinterpret_u64_u8(self.0), 0);
+            BitMask(ctrl & BITMASK_ITER_MASK)
         }
     }
 
@@ -93,8 +96,8 @@ impl Group {
     #[inline]
     pub(crate) fn match_full(self) -> BitMask {
         unsafe {
-            let cmp = neon::vcgez_s8(neon::vreinterpret_s8_u8(self.0));
-            BitMask(neon::vget_lane_u64(neon::vreinterpret_u64_u8(cmp), 0))
+            let ctrl = neon::vget_lane_u64(neon::vreinterpret_u64_u8(self.0), 0);
+            BitMask(!ctrl & BITMASK_ITER_MASK)
         }
     }
 
