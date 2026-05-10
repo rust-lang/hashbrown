@@ -1832,6 +1832,24 @@ impl RawTableInner {
             // insertion slot from the group if we don't have one yet.
             if likely(insert_index.is_none()) {
                 insert_index = self.find_insert_index_in_group(&group, &probe_seq);
+
+                // When the found slot is EMPTY (not DELETED), we can stop probing
+                // immediately without computing the more expensive match_empty() on
+                // the whole group. This is the common case when there are no
+                // tombstones in the table.
+                //
+                // An EMPTY slot in this group guarantees the key we're looking for
+                // can't be in a subsequent group. Additionally, a true EMPTY byte
+                // at the computed index means the index is valid (not a small-table
+                // false positive from wrapping), so fix_insert_index is unnecessary.
+                if let Some(idx) = insert_index {
+                    // SAFETY: The index was found by `find_insert_index_in_group` which
+                    // guarantees it is in the range `0..=self.bucket_mask`, so calling
+                    // `self.ctrl(idx)` is safe.
+                    if likely(unsafe { *self.ctrl(idx) } == Tag::EMPTY) {
+                        return Err(idx);
+                    }
+                }
             }
 
             if let Some(insert_index) = insert_index {
