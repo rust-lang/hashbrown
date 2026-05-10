@@ -908,6 +908,69 @@ impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
         }
     }
 
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
+    ///
+    /// ### Element Fate
+    /// - Kept if `f(&k, &mut v)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&k, &mut v)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&k, &mut v)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&k, &mut v)`
+    ///   returns `ControlFlow::Break`
+    ///
+    /// The elements are visited in unsorted (and unspecified) order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    /// use core::ops::ControlFlow;
+    ///
+    /// let mut map: HashMap<i32, i32> = (0..8).map(|x|(x, x*10)).collect();
+    /// assert_eq!(map.len(), 8);
+    /// let mut removed = 0;
+    /// map.filter(|&k, _| if removed < 3 {
+    ///     if k % 2 == 0 {
+    ///         ControlFlow::Continue(true)
+    ///     } else {
+    ///         removed += 1;
+    ///         ControlFlow::Continue(false)
+    ///     }
+    /// } else {
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
+    /// });
+    ///
+    /// // We can see, that the number of elements inside map is changed and the
+    /// // length matches when we have aborted the iteration with the return of `ControlFlow::Break`
+    /// assert_eq!(map.len(), 5);
+    /// ```
+    pub fn filter<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &mut V) -> core::ops::ControlFlow<bool, bool>,
+    {
+        // Here we only use `iter` as a temporary, preventing use-after-free
+        unsafe {
+            for item in self.table.iter() {
+                let &mut (ref key, ref mut value) = item.as_mut();
+                match f(key, value) {
+                    core::ops::ControlFlow::Continue(kept) => {
+                        if !kept {
+                            self.table.erase(item);
+                        }
+                    }
+                    core::ops::ControlFlow::Break(kept) => {
+                        if !kept {
+                            self.table.erase(item);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     /// Drains elements which are true under the given predicate,
     /// and returns an iterator over the removed items.
     ///
@@ -6291,6 +6354,31 @@ mod test_map {
         assert_eq!(map[&2], 20);
         assert_eq!(map[&4], 40);
         assert_eq!(map[&6], 60);
+    }
+
+    #[test]
+    fn test_filter() {
+        let mut map: HashMap<i32, i32> = (0..100).map(|x| (x, x * 10)).collect();
+        // looping and removing any key > 50, but stop after 40 removed
+        let mut removed = 0;
+        map.filter(|&k, _| {
+            if k > 50 {
+                removed += 1;
+                if removed < 40 {
+                    core::ops::ControlFlow::Continue(false)
+                } else {
+                    // remove this item and break
+                    core::ops::ControlFlow::Break(false)
+                }
+            } else {
+                core::ops::ControlFlow::Continue(true)
+            }
+        });
+        assert_eq!(map.len(), 60);
+        // check nothing up to 50 is removed
+        for k in 0..=50 {
+            assert_eq!(map[&k], k * 10);
+        }
     }
 
     #[test]

@@ -1303,6 +1303,79 @@ where
         }
     }
 
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
+    ///
+    /// ### Element Fate
+    /// - Kept if `f(&e)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&e)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&e)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&e)`
+    ///   returns `ControlFlow::Break`
+    ///
+    /// The elements are visited in unsorted (and unspecified) order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "nightly")]
+    /// # fn test() {
+    /// use hashbrown::{HashTable, DefaultHashBuilder};
+    /// use std::hash::BuildHasher;
+    /// use core::ops::ControlFlow;
+    ///
+    /// let mut table = HashTable::new();
+    /// let hasher = DefaultHashBuilder::default();
+    /// let hasher = |val: &_| {
+    ///     use core::hash::Hasher;
+    ///     let mut state = hasher.build_hasher();
+    ///     core::hash::Hash::hash(&val, &mut state);
+    ///     state.finish()
+    /// };
+    /// let mut removed = 0;
+    /// for x in 1..=8 {
+    ///     table.insert_unique(hasher(&x), x, hasher);
+    /// }
+    /// table.filter(|&mut v| if removed < 3 {
+    ///     if v % 2 == 0 {
+    ///         ControlFlow::Continue(true)
+    ///     } else {
+    ///         removed += 1;
+    ///         ControlFlow::Continue(false)
+    ///     }
+    /// } else {
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
+    /// });
+    /// assert_eq!(table.len(), 5);
+    /// # }
+    /// # fn main() {
+    /// #     #[cfg(feature = "nightly")]
+    /// #     test()
+    /// # }
+    /// ```
+    pub fn filter(&mut self, mut f: impl FnMut(&mut T) -> core::ops::ControlFlow<bool, bool>) {
+        // Here we only use `iter` as a temporary, preventing use-after-free
+        unsafe {
+            for item in self.raw.iter() {
+                match f(item.as_mut()) {
+                    core::ops::ControlFlow::Continue(kept) => {
+                        if !kept {
+                            self.raw.erase(item);
+                        }
+                    }
+                    core::ops::ControlFlow::Break(kept) => {
+                        if !kept {
+                            self.raw.erase(item);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     /// Clears the set, returning all elements in an iterator.
     ///
     /// # Examples
@@ -3186,12 +3259,49 @@ impl<T, F, A: Allocator> FusedIterator for ExtractIf<'_, T, F, A> where F: FnMut
 
 #[cfg(test)]
 mod tests {
+    use crate::DefaultHashBuilder;
+
     use super::HashTable;
 
+    use core::hash::BuildHasher;
     #[test]
     fn test_allocation_info() {
         assert_eq!(HashTable::<()>::new().allocation_size(), 0);
         assert_eq!(HashTable::<u32>::new().allocation_size(), 0);
         assert!(HashTable::<u32>::with_capacity(1).allocation_size() > core::mem::size_of::<u32>());
+    }
+
+    #[test]
+    fn test_filter() {
+        let mut table = HashTable::new();
+        let hasher = DefaultHashBuilder::default();
+        let hasher = |val: &_| {
+            use core::hash::Hasher;
+            let mut state = hasher.build_hasher();
+            core::hash::Hash::hash(&val, &mut state);
+            state.finish()
+        };
+        for x in 0..100 {
+            table.insert_unique(hasher(&x), x, hasher);
+        }
+        // looping and removing any value > 50, but stop after 40 removals
+        let mut removed = 0;
+        table.filter(|&mut v| {
+            if removed < 40 {
+                if v > 50 {
+                    removed += 1;
+                    core::ops::ControlFlow::Continue(false)
+                } else {
+                    core::ops::ControlFlow::Continue(true)
+                }
+            } else {
+                core::ops::ControlFlow::Break(true)
+            }
+        });
+        assert_eq!(table.len(), 60);
+        // check nothing up to 50 is removed
+        for v in 0..=50 {
+            assert_eq!(table.find(hasher(&v), |&val| val == v), Some(&v));
+        }
     }
 }
