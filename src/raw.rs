@@ -1210,6 +1210,24 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
+    /// Issues a software prefetch hint for the table memory that a lookup of
+    /// `hash` would touch first: the control-byte group at the start of the
+    /// probe sequence and the corresponding data bucket.
+    ///
+    /// This is purely a performance hint and has no observable effect. It is
+    /// most useful when looking up many keys in a row: hash and prefetch a key a
+    /// few iterations ahead of the one currently being looked up, so its cache
+    /// lines are in flight by the time `get`/`find` reaches them. On a single
+    /// lookup, or on a table small enough to stay in cache, it does nothing
+    /// useful (and on architectures without a prefetch instruction it compiles
+    /// away entirely).
+    #[inline]
+    pub(crate) fn prefetch(&self, hash: u64) {
+        // SAFETY: We use the same `table_layout` that was used to allocate
+        // this table.
+        unsafe { self.table.prefetch(hash, Self::TABLE_LAYOUT) }
+    }
+
     /// Gets a reference to an element in the table.
     #[inline]
     pub(crate) fn get(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
@@ -2451,6 +2469,49 @@ impl RawTableInner {
             // of buckets is a power of two, and `self.bucket_mask = self.num_buckets() - 1`.
             pos: h1(hash) & self.bucket_mask,
             stride: 0,
+        }
+    }
+
+    /// Issues a software prefetch hint for the control-byte group and data
+    /// bucket at the start of the probe sequence for `hash`.
+    ///
+    /// `table_layout` must be the layout used to allocate this table (so that
+    /// the data-bucket address is computed correctly).
+    ///
+    /// This is a hint only: it performs no memory access, never faults, and is
+    /// a no-op in the abstract machine. On the empty singleton table the
+    /// "addresses" point into / just before the shared empty control array,
+    /// which is fine — prefetching them is still harmless.
+    ///
+    /// # Safety
+    ///
+    /// `table_layout` must match the layout used to allocate this table.
+    /// (The function does not dereference any pointer, but it computes one from
+    /// `table_layout.size`; a mismatched layout would only mean prefetching the
+    /// wrong cache line, never UB.)
+    #[inline]
+    unsafe fn prefetch(&self, hash: u64, table_layout: TableLayout) {
+        let pos = h1(hash) & self.bucket_mask;
+
+        // Control bytes: the group `Group::load` would read first. `pos` is a
+        // valid control index (`pos <= bucket_mask < num_ctrl_bytes`), so the
+        // pointer is in-bounds even before accounting for the hint-only nature
+        // of prefetch.
+        let ctrl_ptr = self.ctrl.as_ptr().wrapping_add(pos);
+
+        // Data bucket at index `pos`: `data_end - (pos + 1) * size`. `data_end`
+        // is `self.ctrl`, so this is `self.ctrl - (pos + 1) * size`. Use
+        // `wrapping_*` so this can never be UB even for the empty singleton
+        // (where it points just before the shared empty control array).
+        let data_ptr = self
+            .ctrl
+            .as_ptr()
+            .wrapping_sub((pos + 1).wrapping_mul(table_layout.size));
+
+        crate::prefetch::prefetch_read_l1(ctrl_ptr);
+        // For zero-sized values there is no data array to prefetch.
+        if table_layout.size != 0 {
+            crate::prefetch::prefetch_read_l1(data_ptr);
         }
     }
 

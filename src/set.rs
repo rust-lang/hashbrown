@@ -854,6 +854,30 @@ where
         self.map.contains_key(value)
     }
 
+    /// Issues a software prefetch hint for the table memory that a lookup of
+    /// `value` would touch first.
+    ///
+    /// This hashes `value` and then prefetches the control-byte group at the
+    /// start of its probe sequence and the corresponding bucket. It is purely a
+    /// performance hint with no observable effect, and it compiles to nothing
+    /// on architectures without a prefetch instruction.
+    ///
+    /// It is only worth using when looking up *many* values in a sequence and
+    /// the set is large enough that the control bytes do not fit in cache: in
+    /// that case you can call `prefetch` on a value several iterations ahead of
+    /// the one currently being looked up. For a single lookup, or a set that
+    /// fits in cache, it does nothing useful. See [`HashMap::prefetch`] for an
+    /// example of the look-ahead pattern.
+    ///
+    /// [`HashMap::prefetch`]: crate::HashMap::prefetch
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn prefetch<Q>(&self, value: &Q)
+    where
+        Q: Hash + Equivalent<T> + ?Sized,
+    {
+        self.map.prefetch(value);
+    }
+
     /// Returns a reference to the value in the set, if any, that is equal to the given value.
     ///
     /// The value may be any borrowed form of the set's value type, but

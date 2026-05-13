@@ -1292,6 +1292,49 @@ where
         }
     }
 
+    /// Issues a software prefetch hint for the table memory that a lookup of
+    /// `k` would touch first.
+    ///
+    /// This hashes `k` and then prefetches the control-byte group at the start
+    /// of its probe sequence and the corresponding bucket. It is purely a
+    /// performance hint with no observable effect, and it compiles to nothing
+    /// on architectures without a prefetch instruction.
+    ///
+    /// It is only worth using when looking up *many* keys in a sequence and the
+    /// map is large enough that the control bytes do not fit in cache: in that
+    /// case you can call `prefetch` on a key several iterations ahead of the one
+    /// currently being looked up, so the cache lines it needs are in flight
+    /// before the lookup reaches them. For a single lookup, or a map that fits
+    /// in cache, it does nothing useful.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashMap;
+    ///
+    /// let map: HashMap<u32, u32> = (0..1000).map(|i| (i, i)).collect();
+    /// let queries: Vec<u32> = (0..1000).rev().collect();
+    ///
+    /// let mut sum = 0u64;
+    /// for (i, q) in queries.iter().enumerate() {
+    ///     if let Some(next) = queries.get(i + 8) {
+    ///         map.prefetch(next);
+    ///     }
+    ///     if let Some(&v) = map.get(q) {
+    ///         sum += u64::from(v);
+    ///     }
+    /// }
+    /// # let _ = sum;
+    /// ```
+    #[inline]
+    pub fn prefetch<Q>(&self, k: &Q)
+    where
+        Q: Hash + Equivalent<K> + ?Sized,
+    {
+        let hash = make_hash::<Q, S>(&self.hash_builder, k);
+        self.table.prefetch(hash);
+    }
+
     /// Returns the key-value pair corresponding to the supplied key.
     ///
     /// The supplied key may be any borrowed form of the map's key type, but
@@ -6898,6 +6941,51 @@ mod test_map {
         assert!(
             HashMap::<u32, u32>::with_capacity(1).allocation_size() > core::mem::size_of::<u32>()
         );
+    }
+
+    #[test]
+    fn test_prefetch() {
+        // `prefetch` is a hint with no observable effect; the contract we can
+        // test is "calling it never misbehaves and never disturbs the table",
+        // across the interesting shapes: the empty singleton, a tiny table, a
+        // larger one, a ZST-value table, present and absent keys, and a key
+        // hash that probes the last bucket.
+        let empty: HashMap<u32, u32> = HashMap::new();
+        empty.prefetch(&0);
+        empty.prefetch(&12345);
+
+        let zst: HashMap<u32, ()> = (0..200).map(|i| (i, ())).collect();
+        for i in 0..256 {
+            zst.prefetch(&i);
+        }
+
+        let mut map: HashMap<u32, u32> = HashMap::new();
+        for i in 0..1000u32 {
+            map.insert(i, i.wrapping_mul(7));
+        }
+        for i in 0..2000u32 {
+            map.prefetch(&i);
+        }
+        // The table is still intact and lookups still work after prefetching.
+        for i in 0..1000u32 {
+            assert_eq!(map.get(&i), Some(&i.wrapping_mul(7)));
+        }
+        for i in 1000..2000u32 {
+            assert_eq!(map.get(&i), None);
+        }
+
+        // The look-ahead pattern from the docs.
+        let queries: Vec<u32> = (0..1000u32).rev().collect();
+        let mut found = 0;
+        for (i, &q) in queries.iter().enumerate() {
+            if let Some(&next) = queries.get(i + 8) {
+                map.prefetch(&next);
+            }
+            if map.get(&q).is_some() {
+                found += 1;
+            }
+        }
+        assert_eq!(found, 1000);
     }
 }
 
