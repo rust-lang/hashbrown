@@ -1292,20 +1292,25 @@ where
         }
     }
 
-    /// Issues a software prefetch hint for the table memory that a lookup of
-    /// `k` would touch first.
+    /// Issues a software prefetch hint for the control bytes and data bucket
+    /// a *lookup* of `k` would touch first.
     ///
-    /// This hashes `k` and then prefetches the control-byte group at the start
-    /// of its probe sequence and the corresponding bucket. It is purely a
-    /// performance hint with no observable effect, and it compiles to nothing
+    /// This hashes `k` and then prefetches both the control-byte group at the
+    /// start of its probe sequence and the corresponding data bucket. The
+    /// method name signals lookup intent; the implementation hints both lines
+    /// because measured bench evidence shows the data prefetch is load-bearing
+    /// for the win on lookup workloads. Use
+    /// [`prefetch_insert`](Self::prefetch_insert) to signal insert intent.
+    ///
+    /// Purely a performance hint with no observable effect; compiles to nothing
     /// on architectures without a prefetch instruction.
     ///
     /// It is only worth using when looking up *many* keys in a sequence and the
     /// map is large enough that the control bytes do not fit in cache: in that
-    /// case you can call `prefetch` on a key several iterations ahead of the one
-    /// currently being looked up, so the cache lines it needs are in flight
-    /// before the lookup reaches them. For a single lookup, or a map that fits
-    /// in cache, it does nothing useful.
+    /// case you can call `prefetch_get` on a key several iterations ahead of
+    /// the one currently being looked up, so the cache lines it needs are in
+    /// flight before the lookup reaches them. For a single lookup, or a map
+    /// that fits in cache, it does nothing useful.
     ///
     /// # Examples
     ///
@@ -1318,7 +1323,7 @@ where
     /// let mut sum = 0u64;
     /// for (i, q) in queries.iter().enumerate() {
     ///     if let Some(next) = queries.get(i + 8) {
-    ///         map.prefetch(next);
+    ///         map.prefetch_get(next);
     ///     }
     ///     if let Some(&v) = map.get(q) {
     ///         sum += u64::from(v);
@@ -1327,12 +1332,29 @@ where
     /// # let _ = sum;
     /// ```
     #[inline]
-    pub fn prefetch<Q>(&self, k: &Q)
+    pub fn prefetch_get<Q>(&self, k: &Q)
     where
         Q: Hash + Equivalent<K> + ?Sized,
     {
         let hash = make_hash::<Q, S>(&self.hash_builder, k);
-        self.table.prefetch(hash);
+        self.table.prefetch_get(hash);
+    }
+
+    /// Issues a software prefetch hint for the control bytes and data bucket
+    /// an *insert* of `k` would touch first.
+    ///
+    /// The method name signals insert intent. Currently shares the same
+    /// implementation as [`prefetch_get`](Self::prefetch_get).
+    ///
+    /// Purely a performance hint with no observable effect; compiles to nothing
+    /// on architectures without a prefetch instruction.
+    #[inline]
+    pub fn prefetch_insert<Q>(&self, k: &Q)
+    where
+        Q: Hash + Equivalent<K> + ?Sized,
+    {
+        let hash = make_hash::<Q, S>(&self.hash_builder, k);
+        self.table.prefetch_insert(hash);
     }
 
     /// Returns the key-value pair corresponding to the supplied key.
@@ -6945,18 +6967,21 @@ mod test_map {
 
     #[test]
     fn test_prefetch() {
-        // `prefetch` is a hint with no observable effect; the contract we can
-        // test is "calling it never misbehaves and never disturbs the table",
-        // across the interesting shapes: the empty singleton, a tiny table, a
-        // larger one, a ZST-value table, present and absent keys, and a key
-        // hash that probes the last bucket.
+        // `prefetch_get` and `prefetch_insert` are hints with no observable
+        // effect; the contract we can test is "calling them never misbehaves
+        // and never disturbs the table", across the interesting shapes: the
+        // empty singleton, a tiny table, a larger one, a ZST-value table,
+        // present and absent keys, and the look-ahead pattern from the docs.
         let empty: HashMap<u32, u32> = HashMap::new();
-        empty.prefetch(&0);
-        empty.prefetch(&12345);
+        empty.prefetch_get(&0);
+        empty.prefetch_get(&12345);
+        empty.prefetch_insert(&0);
+        empty.prefetch_insert(&12345);
 
         let zst: HashMap<u32, ()> = (0..200).map(|i| (i, ())).collect();
         for i in 0..256 {
-            zst.prefetch(&i);
+            zst.prefetch_get(&i);
+            zst.prefetch_insert(&i);
         }
 
         let mut map: HashMap<u32, u32> = HashMap::new();
@@ -6964,7 +6989,8 @@ mod test_map {
             map.insert(i, i.wrapping_mul(7));
         }
         for i in 0..2000u32 {
-            map.prefetch(&i);
+            map.prefetch_get(&i);
+            map.prefetch_insert(&i);
         }
         // The table is still intact and lookups still work after prefetching.
         for i in 0..1000u32 {
@@ -6974,18 +7000,32 @@ mod test_map {
             assert_eq!(map.get(&i), None);
         }
 
-        // The look-ahead pattern from the docs.
+        // The look-ahead pattern from the docs (lookup-side).
         let queries: Vec<u32> = (0..1000u32).rev().collect();
         let mut found = 0;
         for (i, &q) in queries.iter().enumerate() {
             if let Some(&next) = queries.get(i + 8) {
-                map.prefetch(&next);
+                map.prefetch_get(&next);
             }
             if map.get(&q).is_some() {
                 found += 1;
             }
         }
         assert_eq!(found, 1000);
+
+        // The look-ahead pattern on the insert side.
+        let mut bulk: HashMap<u32, u32> = HashMap::with_capacity(4096);
+        let inserts: Vec<u32> = (0..2000u32).collect();
+        for (i, &k) in inserts.iter().enumerate() {
+            if let Some(&next) = inserts.get(i + 8) {
+                bulk.prefetch_insert(&next);
+            }
+            bulk.insert(k, k);
+        }
+        assert_eq!(bulk.len(), 2000);
+        for i in 0..2000u32 {
+            assert_eq!(bulk.get(&i), Some(&i));
+        }
     }
 }
 

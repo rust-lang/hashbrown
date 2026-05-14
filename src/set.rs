@@ -857,25 +857,46 @@ where
     /// Issues a software prefetch hint for the table memory that a lookup of
     /// `value` would touch first.
     ///
-    /// This hashes `value` and then prefetches the control-byte group at the
-    /// start of its probe sequence and the corresponding bucket. It is purely a
-    /// performance hint with no observable effect, and it compiles to nothing
+    /// This hashes `value` and prefetches both the control-byte group at the
+    /// start of its probe sequence and the corresponding data bucket. The
+    /// method name signals lookup intent; the implementation hints both lines
+    /// because measured bench evidence shows the data prefetch is load-bearing
+    /// for the win on lookup workloads. Use
+    /// [`prefetch_insert`](Self::prefetch_insert) to signal insert intent.
+    ///
+    /// Purely a performance hint with no observable effect; compiles to nothing
     /// on architectures without a prefetch instruction.
     ///
     /// It is only worth using when looking up *many* values in a sequence and
     /// the set is large enough that the control bytes do not fit in cache: in
-    /// that case you can call `prefetch` on a value several iterations ahead of
-    /// the one currently being looked up. For a single lookup, or a set that
-    /// fits in cache, it does nothing useful. See [`HashMap::prefetch`] for an
-    /// example of the look-ahead pattern.
+    /// that case you can call `prefetch_get` on a value several iterations
+    /// ahead of the one currently being looked up. For a single lookup, or a
+    /// set that fits in cache, it does nothing useful. See
+    /// [`HashMap::prefetch_get`] for an example of the look-ahead pattern.
     ///
-    /// [`HashMap::prefetch`]: crate::HashMap::prefetch
+    /// [`HashMap::prefetch_get`]: crate::HashMap::prefetch_get
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn prefetch<Q>(&self, value: &Q)
+    pub fn prefetch_get<Q>(&self, value: &Q)
     where
         Q: Hash + Equivalent<T> + ?Sized,
     {
-        self.map.prefetch(value);
+        self.map.prefetch_get(value);
+    }
+
+    /// Issues a software prefetch hint for the control bytes and data bucket
+    /// an *insert* of `value` would touch first.
+    ///
+    /// The method name signals insert intent. Currently shares the same
+    /// implementation as [`prefetch_get`](Self::prefetch_get).
+    ///
+    /// Purely a performance hint with no observable effect; compiles to nothing
+    /// on architectures without a prefetch instruction.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn prefetch_insert<Q>(&self, value: &Q)
+    where
+        Q: Hash + Equivalent<T> + ?Sized,
+    {
+        self.map.prefetch_insert(value);
     }
 
     /// Returns a reference to the value in the set, if any, that is equal to the given value.
