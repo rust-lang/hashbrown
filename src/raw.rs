@@ -1210,6 +1210,41 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
+    /// Issues a software prefetch hint for the control-byte group and data
+    /// bucket a *lookup* of `hash` would touch first.
+    ///
+    /// The method name signals lookup intent; the implementation hints both
+    /// lines because measured bench evidence (PR #727) shows the data prefetch
+    /// is load-bearing for the win on lookup workloads. Use
+    /// [`prefetch_insert`](Self::prefetch_insert) to signal insert intent — it
+    /// currently shares the same implementation but the split keeps room for a
+    /// behavioral specialization in a follow-up if a workload supports it.
+    ///
+    /// Purely a performance hint with no observable effect. Most useful when
+    /// looking up many keys in a row: hash and prefetch a key a few iterations
+    /// ahead of the one currently being looked up. On a single lookup, or on
+    /// a table small enough to stay in cache, it does nothing useful (and on
+    /// architectures without a prefetch instruction it compiles away entirely).
+    #[inline]
+    pub(crate) fn prefetch_get(&self, hash: u64) {
+        // SAFETY: We use the same `table_layout` that was used to allocate
+        // this table.
+        unsafe { self.table.prefetch_both(hash, Self::TABLE_LAYOUT) }
+    }
+
+    /// Issues a software prefetch hint for the control-byte group and data
+    /// bucket an *insert* of `hash` would touch first.
+    ///
+    /// The method name signals insert intent. Currently shares the same
+    /// implementation as [`prefetch_get`](Self::prefetch_get) — see that
+    /// method's note on the named-split-only design.
+    #[inline]
+    pub(crate) fn prefetch_insert(&self, hash: u64) {
+        // SAFETY: We use the same `table_layout` that was used to allocate
+        // this table.
+        unsafe { self.table.prefetch_both(hash, Self::TABLE_LAYOUT) }
+    }
+
     /// Gets a reference to an element in the table.
     #[inline]
     pub(crate) fn get(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
@@ -2451,6 +2486,56 @@ impl RawTableInner {
             // of buckets is a power of two, and `self.bucket_mask = self.num_buckets() - 1`.
             pos: h1(hash) & self.bucket_mask,
             stride: 0,
+        }
+    }
+
+    /// Issues a software prefetch hint for the control-byte group *and* the
+    /// data bucket at the start of the probe sequence for `hash`.
+    ///
+    /// Used by both `prefetch_get` (lookup-side hint) and `prefetch_insert`
+    /// (insert-side hint) wrappers. The two wrappers share the same underlying
+    /// implementation because measured bench evidence (PR #727, Ryzen 9 9950X,
+    /// hit-heavy AND miss-heavy workloads) shows that the data-line prefetch
+    /// is load-bearing for the win on lookup workloads — skipping the data
+    /// prefetch in the lookup case regresses 18–40% across the size sweep.
+    /// The named-method split (`prefetch_get` vs `prefetch_insert`) expresses
+    /// caller intent without changing behavior; the implementations can
+    /// diverge in a follow-up if a workload surfaces where the trade-off pays.
+    ///
+    /// `table_layout` must be the layout used to allocate this table (so that
+    /// the data-bucket address is computed correctly).
+    ///
+    /// This is a hint only: it performs no memory access, never faults, and is
+    /// a no-op in the abstract machine. On the empty singleton table the
+    /// "addresses" point into / just before the shared empty control array,
+    /// which is fine — prefetching them is still harmless.
+    ///
+    /// # Safety
+    ///
+    /// `table_layout` must match the layout used to allocate this table.
+    /// (The function does not dereference any pointer, but it computes one from
+    /// `table_layout.size`; a mismatched layout would only mean prefetching the
+    /// wrong cache line, never UB.)
+    #[inline]
+    unsafe fn prefetch_both(&self, hash: u64, table_layout: TableLayout) {
+        let pos = h1(hash) & self.bucket_mask;
+
+        // Control bytes: the group `Group::load` would read first.
+        let ctrl_ptr = self.ctrl.as_ptr().wrapping_add(pos);
+
+        // Data bucket at index `pos`: `data_end - (pos + 1) * size`. `data_end`
+        // is `self.ctrl`, so this is `self.ctrl - (pos + 1) * size`. Use
+        // `wrapping_*` so this can never be UB even for the empty singleton
+        // (where it points just before the shared empty control array).
+        let data_ptr = self
+            .ctrl
+            .as_ptr()
+            .wrapping_sub((pos + 1).wrapping_mul(table_layout.size));
+
+        crate::prefetch::prefetch_read_l1(ctrl_ptr);
+        // For zero-sized values there is no data array to prefetch.
+        if table_layout.size != 0 {
+            crate::prefetch::prefetch_read_l1(data_ptr);
         }
     }
 
