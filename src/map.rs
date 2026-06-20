@@ -1,3 +1,4 @@
+use crate::alloc::ToOwned;
 use crate::alloc::{Allocator, Global};
 use crate::raw::{Bucket, RawDrain, RawExtractIf, RawIntoIter, RawIter, RawTable};
 use crate::{DefaultHashBuilder, Equivalent, TryReserveError};
@@ -8,7 +9,6 @@ use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem;
 use core::ops::Index;
-use stdalloc::borrow::ToOwned;
 
 #[cfg(feature = "raw-entry")]
 pub use crate::raw_entry::*;
@@ -5073,12 +5073,11 @@ mod test_map {
     use super::Entry::{Occupied, Vacant};
     use super::EntryRef;
     use super::HashMap;
-    use crate::alloc::{AllocError, Allocator, Global};
+    use crate::alloc::{AllocError, Allocator, Global, ToOwned};
     use core::alloc::Layout;
     use core::ptr::NonNull;
     use core::sync::atomic::{AtomicI8, Ordering};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
-    use std::borrow::ToOwned;
     use std::cell::RefCell;
     use std::vec::Vec;
     use stdalloc::string::String;
