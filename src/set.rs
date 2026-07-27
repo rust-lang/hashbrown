@@ -106,8 +106,8 @@ use crate::raw::RawExtractIf;
 /// // use the values stored in the set
 /// ```
 ///
-/// [`Cell`]: std::cell::Cell
-/// [`RefCell`]: std::cell::RefCell
+/// [`Cell`]: core::cell::Cell
+/// [`RefCell`]: core::cell::RefCell
 pub struct HashSet<T, S = DefaultHashBuilder, A: Allocator = Global> {
     pub(crate) map: HashMap<T, (), S, A>,
 }
