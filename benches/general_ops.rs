@@ -9,7 +9,7 @@ use core::{
 use criterion::Criterion;
 use hashbrown::DefaultHashBuilder;
 use hashbrown::{HashMap, HashSet};
-use std::collections::hash_map::RandomState;
+use std::hash::RandomState;
 
 const SIZE: usize = 1000;
 const OP_COUNT: usize = 500;
