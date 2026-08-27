@@ -133,8 +133,8 @@ pub use crate::raw_entry::*;
 /// The easiest way to use `HashMap` with a custom key type is to derive [`Eq`] and [`Hash`].
 /// We must also derive [`PartialEq`].
 ///
-/// [`RefCell`]: std::cell::RefCell
-/// [`Cell`]: std::cell::Cell
+/// [`Cell`]: core::cell::Cell
+/// [`RefCell`]: core::cell::RefCell
 /// [`default`]: Default::default
 /// [`with_hasher`]: HashMap::with_hasher
 /// [`with_capacity_and_hasher`]: HashMap::with_capacity_and_hasher
@@ -2669,13 +2669,13 @@ pub struct ValuesMut<'a, K, V> {
 ///
 /// // Existing key (or_insert)
 /// let v = map.entry("b").or_insert(2);
-/// assert_eq!(std::mem::replace(v, 2), 20);
+/// assert_eq!(core::mem::replace(v, 2), 20);
 /// // Nonexistent key (or_insert)
 /// map.entry("e").or_insert(5);
 ///
 /// // Existing key (or_insert_with)
 /// let v = map.entry("c").or_insert_with(|| 3);
-/// assert_eq!(std::mem::replace(v, 3), 30);
+/// assert_eq!(core::mem::replace(v, 3), 30);
 /// // Nonexistent key (or_insert_with)
 /// map.entry("f").or_insert_with(|| 6);
 ///
@@ -2872,13 +2872,13 @@ impl<K: Debug, V, S, A: Allocator> Debug for VacantEntry<'_, K, V, S, A> {
 ///
 /// // Existing key (or_insert)
 /// let v = map.entry_ref("b").or_insert(2);
-/// assert_eq!(std::mem::replace(v, 2), 20);
+/// assert_eq!(core::mem::replace(v, 2), 20);
 /// // Nonexistent key (or_insert)
 /// map.entry_ref("e").or_insert(5);
 ///
 /// // Existing key (or_insert_with)
 /// let v = map.entry_ref("c").or_insert_with(|| 3);
-/// assert_eq!(std::mem::replace(v, 3), 30);
+/// assert_eq!(core::mem::replace(v, 3), 30);
 /// // Nonexistent key (or_insert_with)
 /// map.entry_ref("f").or_insert_with(|| 6);
 ///
@@ -3809,8 +3809,8 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     ///     Entry::Vacant(_) => panic!(),
     ///     Entry::Occupied(mut entry) => {
     ///         let replaced = entry.replace_key(new_key);
-    ///         assert!(std::ptr::eq(replaced, old_key));
-    ///         assert!(std::ptr::eq(*entry.key(), new_key));
+    ///         assert!(core::ptr::eq(replaced, old_key));
+    ///         assert!(core::ptr::eq(*entry.key(), new_key));
     ///     },
     /// }
     ///
@@ -3864,8 +3864,8 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     ///     Entry::Vacant(_) => panic!(),
     ///     Entry::Occupied(mut entry) => {
     ///         let replaced = unsafe { entry.replace_key_unchecked(new_key) };
-    ///         assert!(std::ptr::eq(replaced, old_key));
-    ///         assert!(std::ptr::eq(*entry.key(), new_key));
+    ///         assert!(core::ptr::eq(replaced, old_key));
+    ///         assert!(core::ptr::eq(*entry.key(), new_key));
     ///     },
     /// }
     ///
@@ -5084,11 +5084,11 @@ mod test_map {
     use super::HashMap;
     use crate::alloc::{AllocError, Allocator, Global};
     use core::alloc::Layout;
+    use core::cell::RefCell;
     use core::ptr::NonNull;
     use core::sync::atomic::{AtomicI8, Ordering};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
     use std::borrow::ToOwned;
-    use std::cell::RefCell;
     use std::vec::Vec;
     use stdalloc::string::String;
     use stdalloc::sync::Arc;
@@ -6043,7 +6043,7 @@ mod test_map {
 
     #[test]
     fn test_extend_ref_kv_tuple() {
-        use std::ops::AddAssign;
+        use core::ops::AddAssign;
         let mut a = HashMap::new();
         a.insert(0, 0);
 
