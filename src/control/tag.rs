@@ -3,7 +3,7 @@ use core::{fmt, mem};
 /// Single tag in a control group.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-pub(crate) struct Tag(pub(super) u8);
+pub(crate) struct Tag(pub(crate) u8);
 impl Tag {
     /// Control tag value for an empty bucket.
     pub(crate) const EMPTY: Tag = Tag(0b1111_1111);
