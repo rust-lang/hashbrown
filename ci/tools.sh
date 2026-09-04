@@ -29,7 +29,7 @@ if rustc --version | grep --quiet nightly ; then
     export RUSTDOCFLAGS="-Zunstable-options --check"
 fi
 
-cargo doc --no-deps --features serde,rayon
+cargo doc --no-deps --features serde,rayon,paralight
 
 if retry rustup component add rustfmt ; then
     cargo fmt --all -- --check
@@ -92,11 +92,11 @@ if retry rustup component add clippy ; then
         TARGETS+=(--target i586-unknown-linux-gnu)
     fi
 
-    cargo clippy --all --tests --features serde,rayon "${TARGETS[@]}" -- -D warnings
+    cargo clippy --all --tests --features serde,rayon,paralight "${TARGETS[@]}" -- -D warnings
 
     # check nightly too
     if rustc --version | grep --quiet nightly ; then
-        cargo +nightly clippy --all-targets --features serde,rayon,nightly "${TARGETS[@]}" -- -D warnings
+        cargo +nightly clippy --all-targets --features serde,rayon,paralight,nightly "${TARGETS[@]}" -- -D warnings
     fi
 fi
 
