@@ -3,28 +3,22 @@
 pub(crate) use core::intrinsics::{likely, unlikely};
 
 #[cfg(not(feature = "nightly"))]
-#[inline(always)]
-#[cold]
-fn cold_path() {}
+use core::hint::cold_path;
 
 #[cfg(not(feature = "nightly"))]
 #[inline(always)]
-pub(crate) fn likely(b: bool) -> bool {
-    if b {
-        true
-    } else {
+pub const fn likely(b: bool) -> bool {
+    if !b {
         cold_path();
-        false
     }
+    b
 }
 
 #[cfg(not(feature = "nightly"))]
 #[inline(always)]
-pub(crate) fn unlikely(b: bool) -> bool {
+pub const fn unlikely(b: bool) -> bool {
     if b {
         cold_path();
-        true
-    } else {
-        false
     }
+    b
 }
