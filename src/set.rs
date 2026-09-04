@@ -369,6 +369,47 @@ impl<T, S, A: Allocator> HashSet<T, S, A> {
         self.map.retain(|k, _| f(k));
     }
 
+    /// Iterates over elements, applying the specified `ControlFlow` predicate to each
+    ///
+    /// ### Element Fate
+    /// - Kept if `f(&e)` returns `ControlFlow::<Any>(true)`
+    /// - Removed if `f(&e)` returns `ControlFlow::<Any>(false)`
+    ///
+    /// ### Iteration Control
+    /// - Continue iterating if `f(&e)` returns `ControlFlow::Continue`
+    /// - Abort iteration immediately (after applying the element fate) if `f(&e)`
+    ///   returns `ControlFlow::Break`
+    ///
+    /// The elements are visited in unsorted (and unspecified) order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashSet;
+    /// use core::ops::ControlFlow;
+    ///
+    /// let xs = [1,2,3,4,5,6];
+    /// let mut set: HashSet<i32> = xs.into_iter().collect();
+    /// let mut count = 0;
+    /// set.filter(|&k| if count < 2 {
+    ///     if k % 2 == 0 {
+    ///         ControlFlow::Continue(true)
+    ///     } else {
+    ///         ControlFlow::Continue(false)
+    ///     }
+    /// } else {
+    ///     // keep this item and break
+    ///     ControlFlow::Break(true)
+    /// });
+    /// assert_eq!(set.len(), 3);
+    /// ```
+    pub fn filter<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&T) -> core::ops::ControlFlow<bool, bool>,
+    {
+        self.map.filter(|k, _| f(k));
+    }
+
     /// Drains elements which are true under the given predicate,
     /// and returns an iterator over the removed items.
     ///
@@ -2959,6 +3000,30 @@ mod test_set {
         assert!(set.contains(&2));
         assert!(set.contains(&4));
         assert!(set.contains(&6));
+    }
+
+    #[test]
+    fn test_filter() {
+        let mut set: HashSet<i32> = (0..100).collect();
+        // looping and removing any element > 50, but stop after 40 removals
+        let mut removed = 0;
+        set.filter(|&k| {
+            if k > 50 {
+                removed += 1;
+                if removed < 40 {
+                    core::ops::ControlFlow::Continue(false)
+                } else {
+                    core::ops::ControlFlow::Break(false)
+                }
+            } else {
+                core::ops::ControlFlow::Continue(true)
+            }
+        });
+        assert_eq!(set.len(), 60);
+        // check nothing up to 50 is removed
+        for k in 0..=50 {
+            assert!(set.contains(&k));
+        }
     }
 
     #[test]
