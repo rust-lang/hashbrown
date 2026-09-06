@@ -1,6 +1,9 @@
 #![expect(missing_docs)] // criterion_group! generates a public bench entrypoint
 
-use criterion::{criterion_group, criterion_main};
+use criterion::{
+    criterion_group,
+    criterion_main,
+};
 
 mod general_ops;
 mod insert_unique_unchecked;

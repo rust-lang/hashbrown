@@ -9,14 +9,27 @@
 //! lookups can no longer find the original keys and iteration starts yielding
 //! repeated garbage-like entries.
 
-use hashbrown::HashMap;
-use std::collections::BTreeSet;
 use std::{
-    hash::{BuildHasher, Hash, Hasher},
-    panic::{AssertUnwindSafe, catch_unwind},
-    sync::Mutex,
-    sync::atomic::{AtomicUsize, Ordering},
+    collections::BTreeSet,
+    hash::{
+        BuildHasher,
+        Hash,
+        Hasher,
+    },
+    panic::{
+        AssertUnwindSafe,
+        catch_unwind,
+    },
+    sync::{
+        Mutex,
+        atomic::{
+            AtomicUsize,
+            Ordering,
+        },
+    },
 };
+
+use hashbrown::HashMap;
 
 /// One-shot panic switch used to trigger the first `build_hasher` call that
 /// occurs inside `reserve(1)`.

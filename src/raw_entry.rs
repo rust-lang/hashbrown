@@ -1,10 +1,32 @@
-use crate::Equivalent;
-use crate::alloc::{Allocator, Global};
-use crate::map::{HashMap, equivalent, make_hash, make_hasher};
-use crate::raw::{Bucket, RawTable};
-use core::fmt::{self, Debug};
-use core::hash::{BuildHasher, Hash};
-use core::mem;
+use core::{
+    fmt::{
+        self,
+        Debug,
+    },
+    hash::{
+        BuildHasher,
+        Hash,
+    },
+    mem,
+};
+
+use crate::{
+    Equivalent,
+    alloc::{
+        Allocator,
+        Global,
+    },
+    map::{
+        HashMap,
+        equivalent,
+        make_hash,
+        make_hasher,
+    },
+    raw::{
+        Bucket,
+        RawTable,
+    },
+};
 
 impl<K, V, S, A: Allocator> HashMap<K, V, S, A> {
     /// Creates a raw entry builder for the `HashMap`.
@@ -1583,7 +1605,10 @@ mod test_map {
 
     #[test]
     fn test_raw_entry() {
-        use super::RawEntryMut::{Occupied, Vacant};
+        use super::RawEntryMut::{
+            Occupied,
+            Vacant,
+        };
 
         let xs = [(1_i32, 10_i32), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
 

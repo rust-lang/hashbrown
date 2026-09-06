@@ -1,17 +1,40 @@
-use crate::alloc::{Allocator, Global};
-use crate::raw::{Bucket, RawDrain, RawExtractIf, RawIntoIter, RawIter, RawTable};
-use crate::{DefaultHashBuilder, Equivalent, TryReserveError};
-use core::borrow::Borrow;
-use core::fmt::{self, Debug};
-use core::hash::{BuildHasher, Hash};
-use core::iter::FusedIterator;
-use core::marker::PhantomData;
-use core::mem;
-use core::ops::Index;
+use core::{
+    borrow::Borrow,
+    fmt::{
+        self,
+        Debug,
+    },
+    hash::{
+        BuildHasher,
+        Hash,
+    },
+    iter::FusedIterator,
+    marker::PhantomData,
+    mem,
+    ops::Index,
+};
+
 use stdalloc::borrow::ToOwned;
 
 #[cfg(feature = "raw-entry")]
 pub use crate::raw_entry::*;
+use crate::{
+    DefaultHashBuilder,
+    Equivalent,
+    TryReserveError,
+    alloc::{
+        Allocator,
+        Global,
+    },
+    raw::{
+        Bucket,
+        RawDrain,
+        RawExtractIf,
+        RawIntoIter,
+        RawIter,
+        RawTable,
+    },
+};
 
 /// A hash map implemented with quadratic probing and SIMD lookup.
 ///
@@ -5078,20 +5101,45 @@ fn assert_covariance() {
 
 #[cfg(test)]
 mod test_map {
-    use super::DefaultHashBuilder;
-    use super::Entry::{Occupied, Vacant};
-    use super::EntryRef;
-    use super::HashMap;
-    use crate::alloc::{AllocError, Allocator, Global};
-    use core::alloc::Layout;
-    use core::ptr::NonNull;
-    use core::sync::atomic::{AtomicI8, Ordering};
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
-    use std::borrow::ToOwned;
-    use std::cell::RefCell;
-    use std::vec::Vec;
-    use stdalloc::string::String;
-    use stdalloc::sync::Arc;
+    use core::{
+        alloc::Layout,
+        ptr::NonNull,
+        sync::atomic::{
+            AtomicI8,
+            Ordering,
+        },
+    };
+    use std::{
+        borrow::ToOwned,
+        cell::RefCell,
+        vec::Vec,
+    };
+
+    use rand::{
+        Rng,
+        SeedableRng,
+        rngs::SmallRng,
+    };
+    use stdalloc::{
+        string::String,
+        sync::Arc,
+    };
+
+    use crate::alloc::{
+        AllocError,
+        Allocator,
+        Global,
+    };
+
+    use super::{
+        DefaultHashBuilder,
+        Entry::{
+            Occupied,
+            Vacant,
+        },
+        EntryRef,
+        HashMap,
+    };
 
     #[test]
     fn test_zero_capacities() {
@@ -6044,6 +6092,7 @@ mod test_map {
     #[test]
     fn test_extend_ref_kv_tuple() {
         use std::ops::AddAssign;
+
         let mut a = HashMap::new();
         a.insert(0, 0);
 
@@ -6322,7 +6371,10 @@ mod test_map {
     #[test]
     #[cfg_attr(miri, ignore)] // FIXME: no OOM signalling (https://github.com/rust-lang/miri/issues/613)
     fn test_try_reserve() {
-        use crate::TryReserveError::{AllocError, CapacityOverflow};
+        use crate::TryReserveError::{
+            AllocError,
+            CapacityOverflow,
+        };
 
         const MAX_ISIZE: usize = isize::MAX as usize;
 
@@ -6902,16 +6954,28 @@ mod test_map {
 
 #[cfg(all(test, unix, any(feature = "nightly", feature = "allocator-api2")))]
 mod test_map_with_mmap_allocations {
-    use super::HashMap;
-    use crate::raw::prev_pow2;
-    use core::alloc::Layout;
-    use core::ptr::{NonNull, null_mut};
-
     #[cfg(feature = "nightly")]
-    use core::alloc::{AllocError, Allocator};
+    use core::alloc::{
+        AllocError,
+        Allocator,
+    };
+    use core::{
+        alloc::Layout,
+        ptr::{
+            NonNull,
+            null_mut,
+        },
+    };
 
     #[cfg(all(feature = "allocator-api2", not(feature = "nightly")))]
-    use allocator_api2::alloc::{AllocError, Allocator};
+    use allocator_api2::alloc::{
+        AllocError,
+        Allocator,
+    };
+
+    use crate::raw::prev_pow2;
+
+    use super::HashMap;
 
     /// This is not a production quality allocator, just good enough for
     /// some basic tests.

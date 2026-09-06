@@ -1,11 +1,27 @@
 //! Rayon extensions for `HashSet`.
 
+use core::hash::{
+    BuildHasher,
+    Hash,
+};
+
+use rayon::iter::{
+    FromParallelIterator,
+    IntoParallelIterator,
+    ParallelExtend,
+    ParallelIterator,
+    plumbing::UnindexedConsumer,
+};
+
+use crate::{
+    HashSet,
+    alloc::{
+        Allocator,
+        Global,
+    },
+};
+
 use super::map;
-use crate::HashSet;
-use crate::alloc::{Allocator, Global};
-use core::hash::{BuildHasher, Hash};
-use rayon::iter::plumbing::UnindexedConsumer;
-use rayon::iter::{FromParallelIterator, IntoParallelIterator, ParallelExtend, ParallelIterator};
 
 /// Parallel iterator over elements of a consumed set.
 ///
@@ -386,10 +402,13 @@ where
 
 #[cfg(test)]
 mod test_par_set {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use stdalloc::vec::Vec;
+    use core::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
 
     use rayon::prelude::*;
+    use stdalloc::vec::Vec;
 
     use crate::HashSet;
 

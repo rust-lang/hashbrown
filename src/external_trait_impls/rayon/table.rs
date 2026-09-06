@@ -1,12 +1,29 @@
 //! Rayon extensions for `HashTable`.
 
-use super::raw::{RawIntoParIter, RawParDrain, RawParIter};
-use crate::HashTable;
-use crate::alloc::{Allocator, Global};
-use core::fmt;
-use core::marker::PhantomData;
-use rayon::iter::plumbing::UnindexedConsumer;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use core::{
+    fmt,
+    marker::PhantomData,
+};
+
+use rayon::iter::{
+    IntoParallelIterator,
+    ParallelIterator,
+    plumbing::UnindexedConsumer,
+};
+
+use crate::{
+    HashTable,
+    alloc::{
+        Allocator,
+        Global,
+    },
+};
+
+use super::raw::{
+    RawIntoParIter,
+    RawParDrain,
+    RawParIter,
+};
 
 /// Parallel iterator over shared references to entries in a map.
 ///
@@ -206,12 +223,19 @@ impl<'a, T: Send, A: Allocator> IntoParallelIterator for &'a mut HashTable<T, A>
 
 #[cfg(test)]
 mod test_par_table {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use stdalloc::vec::Vec;
+    use core::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
 
     use rayon::prelude::*;
+    use stdalloc::vec::Vec;
 
-    use crate::{DefaultHashBuilder, hash_map::make_hash, hash_table::HashTable};
+    use crate::{
+        DefaultHashBuilder,
+        hash_map::make_hash,
+        hash_table::HashTable,
+    };
 
     #[test]
     fn test_iterate() {

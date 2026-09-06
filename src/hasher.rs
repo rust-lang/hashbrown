@@ -1,6 +1,9 @@
 #[cfg(feature = "default-hasher")]
 use {
-    core::hash::{BuildHasher, Hasher},
+    core::hash::{
+        BuildHasher,
+        Hasher,
+    },
     foldhash::fast::RandomState,
 };
 

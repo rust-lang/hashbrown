@@ -1,10 +1,13 @@
-use super::super::{BitMask, Tag};
-use core::num::NonZeroU16;
-
 #[cfg(target_arch = "x86")]
 use core::arch::x86;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64 as x86;
+use core::num::NonZeroU16;
+
+use super::super::{
+    BitMask,
+    Tag,
+};
 
 pub(crate) type BitMaskWord = u16;
 pub(crate) type NonZeroBitMaskWord = NonZeroU16;

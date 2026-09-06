@@ -1,6 +1,10 @@
 #[cfg(test)]
 pub(crate) use self::inner::AllocError;
-pub(crate) use self::inner::{Allocator, Global, do_alloc};
+pub(crate) use self::inner::{
+    Allocator,
+    Global,
+    do_alloc,
+};
 
 // Nightly-case.
 // Use unstable `allocator_api` feature.
@@ -8,11 +12,17 @@ pub(crate) use self::inner::{Allocator, Global, do_alloc};
 // This is used when building for `std`.
 #[cfg(feature = "nightly")]
 mod inner {
-    use core::alloc::Layout;
-    use core::ptr::NonNull;
+    use core::{
+        alloc::Layout,
+        ptr::NonNull,
+    };
+
     #[cfg(test)]
     pub(crate) use stdalloc::alloc::AllocError;
-    pub(crate) use stdalloc::alloc::{Allocator, Global};
+    pub(crate) use stdalloc::alloc::{
+        Allocator,
+        Global,
+    };
 
     pub(crate) fn do_alloc<A: Allocator>(alloc: &A, layout: Layout) -> Result<NonNull<[u8]>, ()> {
         match alloc.allocate(layout) {
@@ -30,11 +40,17 @@ mod inner {
 // `core::alloc::Allocator`.
 #[cfg(all(not(feature = "nightly"), feature = "allocator-api2"))]
 mod inner {
+    use core::{
+        alloc::Layout,
+        ptr::NonNull,
+    };
+
     #[cfg(test)]
     pub(crate) use allocator_api2::alloc::AllocError;
-    pub(crate) use allocator_api2::alloc::{Allocator, Global};
-    use core::alloc::Layout;
-    use core::ptr::NonNull;
+    pub(crate) use allocator_api2::alloc::{
+        Allocator,
+        Global,
+    };
 
     pub(crate) fn do_alloc<A: Allocator>(alloc: &A, layout: Layout) -> Result<NonNull<[u8]>, ()> {
         match alloc.allocate(layout) {
@@ -54,9 +70,15 @@ mod inner {
 // or `nightly` without disturbing users that don't want to use it.
 #[cfg(not(any(feature = "nightly", feature = "allocator-api2")))]
 mod inner {
-    use core::alloc::Layout;
-    use core::ptr::NonNull;
-    use stdalloc::alloc::{alloc, dealloc};
+    use core::{
+        alloc::Layout,
+        ptr::NonNull,
+    };
+
+    use stdalloc::alloc::{
+        alloc,
+        dealloc,
+    };
 
     #[expect(clippy::missing_safety_doc)] // not exposed outside of this crate
     pub unsafe trait Allocator {

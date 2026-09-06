@@ -1,20 +1,42 @@
-use crate::TryReserveError;
-use crate::control::{BitMaskIter, Group, Tag, TagSliceExt};
-use crate::scopeguard::{ScopeGuard, guard};
-use crate::util::{likely, unlikely};
-use core::alloc::Layout;
-use core::array;
-use core::iter::FusedIterator;
-use core::marker::PhantomData;
-use core::mem;
-use core::ptr;
-use core::ptr::NonNull;
-use core::slice;
+use core::{
+    alloc::Layout,
+    array,
+    iter::FusedIterator,
+    marker::PhantomData,
+    mem,
+    ptr::{
+        self,
+        NonNull,
+    },
+    slice,
+};
+
 use stdalloc::alloc::handle_alloc_error;
 
 #[cfg(test)]
 use crate::alloc::AllocError;
-use crate::alloc::{Allocator, Global, do_alloc};
+use crate::{
+    TryReserveError,
+    alloc::{
+        Allocator,
+        Global,
+        do_alloc,
+    },
+    control::{
+        BitMaskIter,
+        Group,
+        Tag,
+        TagSliceExt,
+    },
+    scopeguard::{
+        ScopeGuard,
+        guard,
+    },
+    util::{
+        likely,
+        unlikely,
+    },
+};
 
 #[inline]
 unsafe fn offset_from<T>(to: *const T, from: *const T) -> usize {
@@ -4487,11 +4509,22 @@ mod test_map {
     #[test]
     #[cfg(panic = "unwind")]
     fn test_catch_panic_clone_from() {
-        use super::{AllocError, Allocator, Global};
-        use core::sync::atomic::{AtomicI8, Ordering};
+        use core::sync::atomic::{
+            AtomicI8,
+            Ordering,
+        };
         use std::thread;
-        use stdalloc::sync::Arc;
-        use stdalloc::vec::Vec;
+
+        use stdalloc::{
+            sync::Arc,
+            vec::Vec,
+        };
+
+        use super::{
+            AllocError,
+            Allocator,
+            Global,
+        };
 
         struct MyAllocInner {
             drop_count: Arc<AtomicI8>,

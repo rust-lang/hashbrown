@@ -1,7 +1,10 @@
 // Extracted from the scopeguard crate
 use core::{
     mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
+    ops::{
+        Deref,
+        DerefMut,
+    },
     ptr,
 };
 

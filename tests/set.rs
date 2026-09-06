@@ -1,9 +1,15 @@
 #![expect(missing_docs)] // https://github.com/rust-lang/rust/issues/137561
 #![cfg(not(miri))] // FIXME: takes too long
 
-use hashbrown::HashSet;
-use rand::{Rng, SeedableRng, distr::Alphanumeric, rngs::SmallRng};
 use std::iter;
+
+use hashbrown::HashSet;
+use rand::{
+    Rng,
+    SeedableRng,
+    distr::Alphanumeric,
+    rngs::SmallRng,
+};
 
 #[test]
 fn test_hashset_insert_remove() {
