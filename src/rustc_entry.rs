@@ -1,10 +1,36 @@
+use core::{
+    fmt::{
+        self,
+        Debug,
+    },
+    hash::{
+        BuildHasher,
+        Hash,
+    },
+    mem,
+};
+
+use crate::{
+    alloc::{
+        Allocator,
+        Global,
+    },
+    map::{
+        Drain,
+        HashMap,
+        IntoIter,
+        Iter,
+        IterMut,
+        make_hash,
+        make_hasher,
+    },
+    raw::{
+        Bucket,
+        RawTable,
+    },
+};
+
 use self::RustcEntry::*;
-use crate::alloc::{Allocator, Global};
-use crate::map::{Drain, HashMap, IntoIter, Iter, IterMut, make_hash, make_hasher};
-use crate::raw::{Bucket, RawTable};
-use core::fmt::{self, Debug};
-use core::hash::{BuildHasher, Hash};
-use core::mem;
 
 impl<K, V, S, A> HashMap<K, V, S, A>
 where

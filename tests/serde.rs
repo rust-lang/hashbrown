@@ -2,9 +2,16 @@
 #![cfg(feature = "serde")]
 
 use core::hash::BuildHasherDefault;
+
 use fnv::FnvHasher;
-use hashbrown::{HashMap, HashSet};
-use serde_test::{Token, assert_tokens};
+use hashbrown::{
+    HashMap,
+    HashSet,
+};
+use serde_test::{
+    Token,
+    assert_tokens,
+};
 
 // We use FnvHash for this test because we rely on the ordering
 type FnvHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FnvHasher>>;

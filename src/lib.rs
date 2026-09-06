@@ -114,9 +114,11 @@ pub mod hash_table {
     }
 }
 
-pub use crate::map::HashMap;
-pub use crate::set::HashSet;
-pub use crate::table::HashTable;
+pub use crate::{
+    map::HashMap,
+    set::HashSet,
+    table::HashTable,
+};
 
 #[cfg(feature = "equivalent")]
 pub use equivalent::Equivalent;

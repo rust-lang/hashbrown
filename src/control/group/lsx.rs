@@ -1,7 +1,12 @@
-use super::super::{BitMask, Tag};
-use core::num::NonZeroU16;
+use core::{
+    arch::loongarch64::*,
+    num::NonZeroU16,
+};
 
-use core::arch::loongarch64::*;
+use super::super::{
+    BitMask,
+    Tag,
+};
 
 pub(crate) type BitMaskWord = u16;
 pub(crate) type NonZeroBitMaskWord = NonZeroU16;

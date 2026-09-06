@@ -1,7 +1,12 @@
-use stdalloc::collections::LinkedList;
-use stdalloc::vec::Vec;
+use stdalloc::{
+    collections::LinkedList,
+    vec::Vec,
+};
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{
+    IntoParallelIterator,
+    ParallelIterator,
+};
 
 /// Helper for collecting parallel iterators to an intermediary
 #[expect(clippy::linkedlist)] // yes, we need linked list here for efficient appending!

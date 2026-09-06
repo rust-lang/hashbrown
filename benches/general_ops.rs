@@ -2,13 +2,21 @@
 //! * Hasher: std default (SipHash) and crate default (foldhash).
 //! * Int key distribution: low bit heavy, top bit heavy, and random.
 //! * Task: basic functionality: insert, insert_erase, lookup, lookup_fail, iter
-use criterion::Criterion;
-use hashbrown::DefaultHashBuilder;
-use hashbrown::{HashMap, HashSet};
+
 use std::{
     hash::RandomState,
     hint::black_box,
-    sync::atomic::{self, AtomicUsize},
+    sync::atomic::{
+        self,
+        AtomicUsize,
+    },
+};
+
+use criterion::Criterion;
+use hashbrown::{
+    DefaultHashBuilder,
+    HashMap,
+    HashSet,
 };
 
 const SIZE: usize = 1000;

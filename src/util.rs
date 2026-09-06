@@ -1,6 +1,9 @@
 // FIXME: Replace with `core::hint::{likely, unlikely}` once they are stable.
 #[cfg(feature = "nightly")]
-pub(crate) use core::intrinsics::{likely, unlikely};
+pub(crate) use core::intrinsics::{
+    likely,
+    unlikely,
+};
 
 #[cfg(not(feature = "nightly"))]
 #[inline(always)]
