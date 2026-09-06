@@ -229,6 +229,80 @@ where
         self.raw.get(hash, eq)
     }
 
+    /// Issues a software prefetch hint for the control-byte group and data
+    /// bucket a *lookup* of `hash` would touch first.
+    ///
+    /// The method name signals lookup intent; the implementation hints both
+    /// lines because measured bench evidence shows the data prefetch is
+    /// load-bearing for the win on lookup workloads. Use
+    /// [`prefetch_insert`](Self::prefetch_insert) to signal insert intent.
+    ///
+    /// This is purely a performance hint with no observable effect, and it
+    /// compiles to nothing on architectures without a prefetch instruction.
+    ///
+    /// It is only worth using when looking up *many* hashes in a sequence and
+    /// the table is large enough that the control bytes do not fit in cache:
+    /// in that case you can hash a key several iterations ahead of the one
+    /// currently being looked up and call `prefetch_get` on it, so the cache
+    /// lines it needs are in flight before the lookup reaches them. For a
+    /// single lookup, or a table that fits in cache, it does nothing useful.
+    ///
+    /// `hash` must be computed with the same hasher you use for [`find`]; using
+    /// an unrelated hash just prefetches an unrelated (still valid-to-prefetch)
+    /// cache line and wastes the hint.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "nightly")]
+    /// # fn test() {
+    /// use hashbrown::{HashTable, DefaultHashBuilder};
+    /// use std::hash::BuildHasher;
+    ///
+    /// let s = DefaultHashBuilder::default();
+    /// let mut table: HashTable<u32> = HashTable::new();
+    /// for i in 0..1000 {
+    ///     table.insert_unique(s.hash_one(i), i, |&x| s.hash_one(x));
+    /// }
+    ///
+    /// let queries: Vec<u32> = (0..1000).rev().collect();
+    /// // Look up `queries`, prefetching 8 iterations ahead.
+    /// let mut found = 0;
+    /// for (i, &q) in queries.iter().enumerate() {
+    ///     if let Some(&next) = queries.get(i + 8) {
+    ///         table.prefetch_get(s.hash_one(next));
+    ///     }
+    ///     if table.find(s.hash_one(q), |&x| x == q).is_some() {
+    ///         found += 1;
+    ///     }
+    /// }
+    /// assert_eq!(found, 1000);
+    /// # }
+    /// # fn main() {
+    /// #     #[cfg(feature = "nightly")]
+    /// #     test()
+    /// # }
+    /// ```
+    ///
+    /// [`find`]: Self::find
+    #[inline]
+    pub fn prefetch_get(&self, hash: u64) {
+        self.raw.prefetch_get(hash);
+    }
+
+    /// Issues a software prefetch hint for the control-byte group and data
+    /// bucket an *insert* of `hash` would touch first.
+    ///
+    /// The method name signals insert intent. Currently shares the same
+    /// implementation as [`prefetch_get`](Self::prefetch_get).
+    ///
+    /// Purely a performance hint with no observable effect; compiles to
+    /// nothing on architectures without a prefetch instruction.
+    #[inline]
+    pub fn prefetch_insert(&self, hash: u64) {
+        self.raw.prefetch_insert(hash);
+    }
+
     /// Returns a mutable reference to an entry in the table with the given hash
     /// and which satisfies the equality function passed.
     ///
