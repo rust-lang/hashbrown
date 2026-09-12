@@ -1574,7 +1574,13 @@ where
                     entry.remove();
                 }
                 map::EntryRef::Vacant(entry) => {
-                    entry.insert(());
+                    // SAFETY: We know that `item.clone()` is equivalent to `item`.
+                    //
+                    // This is *required* to get around the lack of *any* impl
+                    // for `ToOwned` when compiling as `rustc-dep-of-std`.
+                    unsafe {
+                        entry.insert_with_key_unchecked(item.clone(), ());
+                    }
                 }
             }
         }

@@ -2,6 +2,22 @@
 pub(crate) use self::inner::AllocError;
 pub(crate) use self::inner::{Allocator, Global, do_alloc};
 
+// Since `ToOwned` is defined in `alloc`, this would prevent us from using
+// this crate in `alloc`; that would be a circular dependency. To get around
+// this particular restriction for `ToOwned`, we just make our own `ToOwned`
+// trait here that `alloc` can blanket-forward to its own definition of
+// `ToOwned` instead.
+#[cfg(feature = "rustc-dep-of-std")]
+#[expect(missing_docs)]
+pub trait ToOwned {
+    type Owned: core::borrow::Borrow<Self>;
+    fn to_owned(&self) -> Self::Owned;
+}
+
+// In every other case, we just use the regular `ToOwned`.
+#[cfg(not(feature = "rustc-dep-of-std"))]
+pub(crate) use stdalloc::borrow::ToOwned;
+
 // Nightly-case.
 // Use unstable `allocator_api` feature.
 // This is compatible with `allocator-api2` which can be enabled or not.

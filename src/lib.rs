@@ -69,6 +69,9 @@ pub use crate::hasher::DefaultHashBuilder;
 #[cfg(feature = "default-hasher")]
 pub use crate::hasher::DefaultHasher;
 
+#[cfg(feature = "rustc-dep-of-std")]
+pub use crate::alloc::ToOwned;
+
 pub mod hash_map {
     //! A hash map implemented with quadratic probing and SIMD lookup.
     pub use crate::map::*;
