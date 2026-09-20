@@ -94,6 +94,17 @@ impl<T> HashTable<T, Global> {
     }
 }
 
+/// Represents the position in a particular [`HashTable`] at which an entry with
+/// some particular hash may be inserted.
+///
+/// Created by [`HashTable::find_or_find_vacant_position`] if the specified element
+/// does not currently exist in the table and there is capacity for its insertion
+/// without reallocating.
+pub struct VacantPosition {
+    hash: u64,
+    index: usize,
+}
+
 impl<T, A> HashTable<T, A>
 where
     A: Allocator,
@@ -227,6 +238,56 @@ where
     /// ```
     pub fn find(&self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
         self.raw.get(hash, eq)
+    }
+
+    /// Returns a reference to an entry in the table with the given hash and
+    /// which satisfies the equality function passed.
+    ///
+    /// This method will call `eq` for all entries with the given hash, but may
+    /// also call it for entries with a different hash. `eq` should only return
+    /// true for the desired entry, at which point the search is stopped.
+    ///
+    /// If no matching entry is found, returns `Err(None)` (if there is no space
+    /// for insertion without reallocation) or `Err(Some(position))` where
+    /// `position` is suitable for inserting a value with the given `hash` into
+    /// `self`, via [Self::insert_at_position`].
+    pub fn find_or_find_vacant_position(
+        &self,
+        hash: u64,
+        eq: impl FnMut(&T) -> bool,
+    ) -> Result<&T, Option<VacantPosition>> {
+        match self.raw.find_or_find_insert_index_if_available(hash, eq) {
+            Ok(bucket) => Ok(unsafe { bucket.as_ref() }),
+            Err(None) => Err(None),
+            Err(Some(index)) => Err(Some(VacantPosition { hash, index })),
+        }
+    }
+
+    /// Inserts `value` into `self` at `position`.
+    ///
+    /// # Safety
+    /// Behavior is undefined unless `self`:
+    ///
+    /// 1. is the same [`HashTable`] instance as was used to create `position`;
+    /// 2. has not been mutated (in any way) in the interim.
+    pub unsafe fn insert_at_position(&mut self, position: VacantPosition, value: T) -> &mut T {
+        unsafe {
+            debug_assert!(
+                position.index < self.raw.num_buckets()
+                    // SAFETY: we ensured that the index is less than the number of buckets.
+                    && !self.raw.is_bucket_full(position.index)
+                    && !self.raw.needs_growth_to_insert_at(position.index)
+            );
+            self.raw
+                // SAFETY: a `VacantPosition` can only have been constructed via
+                //         `Self::find_or_find_vacant_position` and is never mutated,
+                //         therefore `position.index` must point at a slot previously
+                //         returned by `self.raw.find_or_find_insert_index_if_available`;
+                //         the caller guarantees that the table has not been mutated in
+                //         the interim.
+                .insert_at_index(position.hash, position.index, value)
+                .as_mut()
+        }
     }
 
     /// Returns a mutable reference to an entry in the table with the given hash
