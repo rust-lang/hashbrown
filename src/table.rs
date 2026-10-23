@@ -711,6 +711,97 @@ where
         }
     }
 
+    /// Inserts an element into the `HashTable` with the given hash value
+    /// without allocating or growing the table.
+    ///
+    /// Existing elements may be rehashed in place to reclaim deleted buckets,
+    /// allowing insertion even when [`Self::capacity`] equals
+    /// [`Self::len`]. Rehashing may move existing elements to different buckets.
+    ///
+    /// `hasher` is called only if existing elements need to be rehashed. It must
+    /// return the same hash value that each element was inserted with. To avoid
+    /// rehashing, use [`Self::try_insert_unique_without_rehash`].
+    ///
+    /// Returns an occupied entry on success, or `Err(value)` if the current
+    /// allocation cannot accommodate another element, even after rehashing.
+    /// On error, the table is unchanged.
+    ///
+    /// This does not check whether an equivalent element already exists in the
+    /// table. As with [`Self::insert_unique`], the caller should
+    /// check for an existing element before inserting if duplicates are
+    /// unwanted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashTable;
+    ///
+    /// let mut table = HashTable::new();
+    /// assert_eq!(table.try_insert_unique_within_capacity(0, "hello", |_| 0).unwrap_err(), "hello");
+    /// assert!(table.is_empty());
+    ///
+    /// table.try_reserve(1, |_| 0).unwrap();
+    /// let entry = table.try_insert_unique_within_capacity(0, "hello", |_| 0).unwrap();
+    /// assert_eq!(entry.get(), &"hello");
+    /// ```
+    pub fn try_insert_unique_within_capacity(
+        &mut self,
+        hash: u64,
+        value: T,
+        hasher: impl Fn(&T) -> u64,
+    ) -> Result<OccupiedEntry<'_, T, A>, T> {
+        match self.raw.try_insert_within_capacity(hash, value, hasher) {
+            Ok(bucket) => Ok(OccupiedEntry {
+                bucket,
+                table: self,
+            }),
+            Err(value) => Err(value),
+        }
+    }
+
+    /// Inserts an element into the `HashTable` with the given hash value
+    /// without allocating, growing, or rehashing the table.
+    ///
+    /// Returns an occupied entry on success, or `Err(value)` if insertion would
+    /// require growing or rehashing. On error, the table is unchanged. Deleted
+    /// buckets may be reused even when [`Self::capacity`] equals
+    /// [`Self::len`].
+    ///
+    /// To allow rehashing within the current allocation, use
+    /// [`Self::try_insert_unique_within_capacity`].
+    ///
+    /// This does not check whether an equivalent element already exists in the
+    /// table. As with [`Self::insert_unique`], the caller should
+    /// check for an existing element before inserting if duplicates are
+    /// unwanted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hashbrown::HashTable;
+    ///
+    /// let mut table = HashTable::new();
+    /// assert_eq!(table.try_insert_unique_without_rehash(0, "hello").unwrap_err(), "hello");
+    /// assert!(table.is_empty());
+    ///
+    /// table.try_reserve(1, |_| 0).unwrap();
+    /// let entry = table.try_insert_unique_without_rehash(0, "hello").unwrap();
+    /// assert_eq!(entry.get(), &"hello");
+    /// ```
+    pub fn try_insert_unique_without_rehash(
+        &mut self,
+        hash: u64,
+        value: T,
+    ) -> Result<OccupiedEntry<'_, T, A>, T> {
+        match self.raw.try_insert_without_rehash(hash, value) {
+            Ok(bucket) => Ok(OccupiedEntry {
+                bucket,
+                table: self,
+            }),
+            Err(value) => Err(value),
+        }
+    }
+
     /// Clears the table, removing all values.
     ///
     /// # Examples
@@ -3187,6 +3278,126 @@ impl<T, F, A: Allocator> FusedIterator for ExtractIf<'_, T, F, A> where F: FnMut
 #[cfg(test)]
 mod tests {
     use super::HashTable;
+
+    #[cfg(any(feature = "nightly", feature = "allocator-api2"))]
+    #[test]
+    fn test_insert_within_capacity_does_not_allocate() {
+        use crate::alloc::{AllocError, Allocator, Global};
+        use core::alloc::Layout;
+        use core::cell::Cell;
+        use core::ptr::NonNull;
+
+        /// Counts calls to allocate and deallocate.
+        #[derive(Clone)]
+        struct CountingAllocator<'a>(&'a Cell<usize>);
+
+        // SAFETY: everything is forwarded to `Global` without changes.
+        unsafe impl Allocator for CountingAllocator<'_> {
+            fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+                self.0.set(self.0.get() + 1);
+                Global.allocate(layout)
+            }
+
+            unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+                self.0.set(self.0.get() + 1);
+                // SAFETY: The pointer and layout came from `Global.allocate`.
+                unsafe { Global.deallocate(ptr, layout) };
+            }
+        }
+
+        // This is a poor hash function that gives us a mixture of collisions
+        // on purpose for testing purposes.
+        fn hash(value: &usize) -> u64 {
+            (*value & 0b1111) as u64
+        }
+        let calls = Cell::new(0);
+        let mut table = HashTable::new_in(CountingAllocator(&calls));
+        assert!(
+            table
+                .try_insert_unique_within_capacity(hash(&0), 0, hash)
+                .is_err()
+        );
+        assert_eq!(calls.get(), 0);
+        // More than 16 entries guarantees that filling the table includes collisions.
+        table.try_reserve(32, hash).unwrap();
+
+        // Checkpoint how many calls to allocate have been made. It's probably
+        // just 1, but we're not testing that detail here.
+        let reserved_calls = calls.get();
+        assert!(reserved_calls > 0);
+        for value in 0..table.capacity() {
+            table
+                .try_insert_unique_within_capacity(hash(&value), value, hash)
+                .unwrap();
+        }
+        assert!(
+            table
+                .try_insert_unique_within_capacity(hash(&usize::MAX), usize::MAX, hash)
+                .is_err()
+        );
+
+        let removed_value = 15;
+        assert_eq!(hash(&removed_value), hash(&usize::MAX));
+        let entry = table
+            .find_entry(hash(&removed_value), |&value| value == removed_value)
+            .unwrap();
+        let removed_index = entry.bucket_index();
+        assert_eq!(entry.remove().0, removed_value);
+
+        // An EMPTY bucket would restore growth budget; a tombstone does not.
+        assert_eq!(table.capacity(), table.len());
+        let entry = table
+            .try_insert_unique_within_capacity(hash(&usize::MAX), usize::MAX, hash)
+            .unwrap();
+
+        // Double-check that usize::MAX was really inserted into the tombstone.
+        assert_eq!(entry.bucket_index(), removed_index);
+        assert_eq!(*entry.get(), usize::MAX);
+
+        // Nothing since the last try_reserve should have allocated.
+        assert_eq!(calls.get(), reserved_calls);
+
+        // Exercise the cleanup fallback too, with more than half the table live.
+        drop(table);
+        let mut table = HashTable::new_in(CountingAllocator(&calls));
+        table.try_reserve(32, |_| 0).unwrap();
+        let reserved_calls = calls.get();
+        let capacity = table.capacity();
+        for value in 0..capacity {
+            table.try_insert_unique_without_rehash(0, value).unwrap();
+        }
+        let empty = (0..table.num_buckets())
+            .find(|&index| table.get_bucket(index).is_none())
+            .unwrap();
+        let insert_hash = u64::try_from(empty).unwrap();
+        table.find_entry(0, |&value| value == 20).unwrap().remove();
+        assert_eq!(table.capacity(), table.len());
+        assert!(table.len() > capacity / 2);
+        assert!(
+            table
+                .try_insert_unique_without_rehash(insert_hash, usize::MAX)
+                .is_err()
+        );
+
+        let hashes = Cell::new(0);
+        table
+            .try_insert_unique_within_capacity(insert_hash, usize::MAX, |_| {
+                hashes.set(hashes.get() + 1);
+                0
+            })
+            .unwrap();
+        assert!(hashes.get() > 0);
+        assert_eq!(table.len(), capacity);
+        assert_eq!(table.capacity(), capacity);
+        assert_eq!(calls.get(), reserved_calls);
+        assert_eq!(
+            table.find(insert_hash, |&value| value == usize::MAX),
+            Some(&usize::MAX)
+        );
+        for value in (0..capacity).filter(|&value| value != 20) {
+            assert_eq!(table.find(0, |&item| item == value), Some(&value));
+        }
+    }
 
     #[test]
     fn test_allocation_info() {

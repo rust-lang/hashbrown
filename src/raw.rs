@@ -1,7 +1,7 @@
 use crate::TryReserveError;
 use crate::control::{BitMaskIter, Group, Tag, TagSliceExt};
 use crate::scopeguard::{ScopeGuard, guard};
-use crate::util::{likely, unlikely};
+use crate::util::{cold_path, likely, unlikely};
 use core::alloc::Layout;
 use core::array;
 use core::iter::FusedIterator;
@@ -1025,27 +1025,88 @@ impl<T, A: Allocator> RawTable<T, A> {
     /// This does not check if the given element already exists in the table.
     #[cfg_attr(feature = "inline-more", inline)]
     pub(crate) fn insert(&mut self, hash: u64, value: T, hasher: impl Fn(&T) -> u64) -> Bucket<T> {
-        unsafe {
-            // SAFETY:
-            // 1. The [`RawTableInner`] must already have properly initialized control bytes since
-            //    we will never expose `RawTable::new_uninitialized` in a public API.
-            //
-            // 2. We reserve additional space (if necessary) right after calling this function.
-            let mut index = self.table.find_insert_index(hash);
-
-            // We can avoid growing the table once we have reached our load factor if we are replacing
-            // a tombstone. This works since the number of EMPTY slots does not change in this case.
-            //
-            // SAFETY: The function is guaranteed to return an index in the range `0..=self.num_buckets()`.
-            let old_ctrl = *self.table.ctrl(index);
-            if unlikely(self.table.growth_left == 0 && old_ctrl.special_is_empty()) {
+        // SAFETY: The control bytes are initialized since `RawTable::new_uninitialized`
+        // is never exposed in a public API.
+        let index = match unsafe { self.table.find_insert_slot(hash) } {
+            Some(index) => index,
+            None => {
                 self.reserve(1, hasher);
                 // SAFETY: We know for sure that `RawTableInner` has control bytes
                 // initialized and that there is extra space in the table.
-                index = self.table.find_insert_index(hash);
+                unsafe { self.table.find_insert_index(hash) }
             }
+        };
+        // SAFETY: `index` came from either `find_insert_slot` (which returns a
+        // valid `find_insert_index` result) or from a fresh `find_insert_index`
+        // after reserving space.
+        unsafe { self.insert_at_index(hash, index, value) }
+    }
 
-            self.insert_at_index(hash, index, value)
+    /// Tries to insert a new element without allocating or growing the table.
+    ///
+    /// Existing elements may be rehashed in place to reclaim deleted buckets.
+    /// Returns `Err(value)` without changing the table if the current allocation
+    /// cannot accommodate another element, even after rehashing.
+    ///
+    /// This does not check if the given element already exists in the table.
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub(crate) fn try_insert_within_capacity(
+        &mut self,
+        hash: u64,
+        value: T,
+        hasher: impl Fn(&T) -> u64,
+    ) -> Result<Bucket<T>, T> {
+        let value = match self.try_insert_without_rehash(hash, value) {
+            Ok(bucket) => return Ok(bucket),
+            Err(value) => value,
+        };
+
+        // Check the load limit ignoring tombstones before changing the table.
+        // This also rejects unallocated tables, whose maximum capacity is zero.
+        if self.table.items >= bucket_mask_to_capacity(self.table.bucket_mask) {
+            return Err(value);
+        }
+
+        // Unlike reserve_rehash, do not choose to grow when more than half full:
+        // cleanup must reclaim space within the existing allocation.
+        // SAFETY:
+        // 1. The capacity check above ensures that the table is allocated.
+        // 2. The control bytes are initialized: RawTable::new_uninitialized is private.
+        // 3. The element size and drop function match T, the table's element type.
+        unsafe {
+            self.table.rehash_in_place(
+                &|table, index| hasher(table.bucket::<T>(index).as_ref()),
+                Self::TABLE_LAYOUT.size,
+                if T::NEEDS_DROP {
+                    Some(|ptr| ptr::drop_in_place(ptr.cast::<T>()))
+                } else {
+                    None
+                },
+            );
+        }
+
+        // Cleanup removed all tombstones, so the capacity check guarantees room.
+        self.try_insert_without_rehash(hash, value)
+    }
+
+    /// Tries to insert a new element without allocating, growing, or rehashing.
+    ///
+    /// Returns `Ok(Bucket)` on success, or `Err(value)` if insertion would
+    /// require growing or rehashing the table. On error, the table is unchanged.
+    ///
+    /// This does not check if the given element already exists in the table.
+    #[inline]
+    pub(crate) fn try_insert_without_rehash(
+        &mut self,
+        hash: u64,
+        value: T,
+    ) -> Result<Bucket<T>, T> {
+        // SAFETY: The control bytes are initialized since `RawTable::new_uninitialized`
+        // is never exposed in a public API.
+        match unsafe { self.table.find_insert_slot(hash) } {
+            // SAFETY: `index` is a valid insert slot from `find_insert_slot`.
+            Some(index) => Ok(unsafe { self.insert_at_index(hash, index, value) }),
+            None => Err(value),
         }
     }
 
@@ -1924,6 +1985,38 @@ impl RawTableInner {
             let old_ctrl = *self.ctrl(index);
             self.set_ctrl_hash(index, hash);
             (index, old_ctrl)
+        }
+    }
+
+    /// Finds an insert slot for the given hash without growing the table.
+    ///
+    /// Returns `None` if inserting into the available slot would exceed the
+    /// table's load-factor limit. A deleted slot can still be reused at that
+    /// limit.
+    ///
+    /// # Safety
+    ///
+    /// The control bytes must be properly initialized.
+    #[inline]
+    unsafe fn find_insert_slot(&self, hash: u64) -> Option<usize> {
+        unsafe {
+            // SAFETY: caller ensures that the control bytes are initialized.
+            let index = self.find_insert_index(hash);
+
+            // We can avoid growing the table once we have reached our load
+            // factor if we are replacing a tombstone. This works since the
+            // number of EMPTY slots does not change in this case.
+            //
+            // SAFETY: `find_insert_index` returns an index in the range
+            // `0..=self.num_buckets()`, including the readable empty control
+            // byte for an unallocated table.
+            let old_ctrl = *self.ctrl(index);
+            if self.growth_left == 0 && old_ctrl.special_is_empty() {
+                cold_path();
+                None
+            } else {
+                Some(index)
+            }
         }
     }
 
