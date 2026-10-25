@@ -51,6 +51,7 @@ mod macros;
 mod alloc;
 mod control;
 mod hasher;
+mod prefetch;
 mod raw;
 mod util;
 
