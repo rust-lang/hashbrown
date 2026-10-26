@@ -3323,8 +3323,9 @@ mod tests {
         );
         assert_eq!(calls.load(Ordering::Relaxed), 0);
 
-        // More than 16 entries guarantees that filling the table includes collisions.
-        table.try_reserve(32, hash).unwrap();
+        // More than 0b01111 entries guarantees that filling the table includes collisions.
+        let mincap = 0b10000;
+        table.try_reserve(mincap, hash).unwrap();
         assert_eq!(calls.load(Ordering::Relaxed), 1);
 
         for value in 0..table.capacity() {
