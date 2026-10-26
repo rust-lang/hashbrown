@@ -3286,20 +3286,21 @@ mod tests {
         use core::alloc::Layout;
         use core::cell::Cell;
         use core::ptr::NonNull;
+        use core::sync::atomic::{AtomicUsize, Ordering};
 
         /// Counts calls to allocate and deallocate.
         #[derive(Clone)]
-        struct CountingAllocator<'a>(&'a Cell<usize>);
+        struct CountingAllocator<'a>(&'a AtomicUsize);
 
         // SAFETY: everything is forwarded to `Global` without changes.
         unsafe impl Allocator for CountingAllocator<'_> {
             fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-                self.0.set(self.0.get() + 1);
+                self.0.fetch_add(1, Ordering::Relaxed);
                 Global.allocate(layout)
             }
 
             unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-                self.0.set(self.0.get() + 1);
+                self.0.fetch_add(1, Ordering::Relaxed);
                 // SAFETY: The pointer and layout came from `Global.allocate`.
                 unsafe { Global.deallocate(ptr, layout) };
             }
@@ -3310,21 +3311,22 @@ mod tests {
         fn hash(value: &usize) -> u64 {
             (*value & 0b1111) as u64
         }
-        let calls = Cell::new(0);
+
+        let calls = AtomicUsize::new(0);
         let mut table = HashTable::new_in(CountingAllocator(&calls));
+
+        // An empty table has no allocation, so inserting requires allocating.
         assert!(
             table
                 .try_insert_unique_within_capacity(hash(&0), 0, hash)
                 .is_err()
         );
-        assert_eq!(calls.get(), 0);
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
         // More than 16 entries guarantees that filling the table includes collisions.
         table.try_reserve(32, hash).unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
 
-        // Checkpoint how many calls to allocate have been made. It's probably
-        // just 1, but we're not testing that detail here.
-        let reserved_calls = calls.get();
-        assert!(reserved_calls > 0);
         for value in 0..table.capacity() {
             table
                 .try_insert_unique_within_capacity(hash(&value), value, hash)
@@ -3336,6 +3338,8 @@ mod tests {
                 .is_err()
         );
 
+        // Remove a value to test that tombstones can be reused without growth.
+        // That's why we check that hash(15) and hash(usize::MAX) match.
         let removed_value = 15;
         assert_eq!(hash(&removed_value), hash(&usize::MAX));
         let entry = table
@@ -3355,13 +3359,13 @@ mod tests {
         assert_eq!(*entry.get(), usize::MAX);
 
         // Nothing since the last try_reserve should have allocated.
-        assert_eq!(calls.get(), reserved_calls);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
 
         // Exercise the cleanup fallback too, with more than half the table live.
         drop(table);
         let mut table = HashTable::new_in(CountingAllocator(&calls));
         table.try_reserve(32, |_| 0).unwrap();
-        let reserved_calls = calls.get();
+        let reserved_calls = calls.load(Ordering::Relaxed);
         let capacity = table.capacity();
         for value in 0..capacity {
             table.try_insert_unique_without_rehash(0, value).unwrap();
@@ -3389,7 +3393,7 @@ mod tests {
         assert!(hashes.get() > 0);
         assert_eq!(table.len(), capacity);
         assert_eq!(table.capacity(), capacity);
-        assert_eq!(calls.get(), reserved_calls);
+        assert_eq!(calls.load(Ordering::Relaxed), reserved_calls);
         assert_eq!(
             table.find(insert_hash, |&value| value == usize::MAX),
             Some(&usize::MAX)

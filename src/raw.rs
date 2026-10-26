@@ -1027,7 +1027,7 @@ impl<T, A: Allocator> RawTable<T, A> {
     pub(crate) fn insert(&mut self, hash: u64, value: T, hasher: impl Fn(&T) -> u64) -> Bucket<T> {
         // SAFETY: The control bytes are initialized since `RawTable::new_uninitialized`
         // is never exposed in a public API.
-        let index = match unsafe { self.table.find_insert_slot(hash) } {
+        let index = match unsafe { self.table.find_insert_index_within_capacity(hash) } {
             Some(index) => index,
             None => {
                 self.reserve(1, hasher);
@@ -1036,9 +1036,9 @@ impl<T, A: Allocator> RawTable<T, A> {
                 unsafe { self.table.find_insert_index(hash) }
             }
         };
-        // SAFETY: `index` came from either `find_insert_slot` (which returns a
-        // valid `find_insert_index` result) or from a fresh `find_insert_index`
-        // after reserving space.
+        // SAFETY: `index` came from either `find_insert_index_within_capacity`
+        // (which returns a valid `find_insert_index` result) or from a fresh
+        // `find_insert_index` after reserving space.
         unsafe { self.insert_at_index(hash, index, value) }
     }
 
@@ -1103,8 +1103,8 @@ impl<T, A: Allocator> RawTable<T, A> {
     ) -> Result<Bucket<T>, T> {
         // SAFETY: The control bytes are initialized since `RawTable::new_uninitialized`
         // is never exposed in a public API.
-        match unsafe { self.table.find_insert_slot(hash) } {
-            // SAFETY: `index` is a valid insert slot from `find_insert_slot`.
+        match unsafe { self.table.find_insert_index_within_capacity(hash) } {
+            // SAFETY: `index` is a valid insert index from `find_insert_index_within_capacity`.
             Some(index) => Ok(unsafe { self.insert_at_index(hash, index, value) }),
             None => Err(value),
         }
@@ -1988,7 +1988,7 @@ impl RawTableInner {
         }
     }
 
-    /// Finds an insert slot for the given hash without growing the table.
+    /// Finds an insert index for the given hash without growing the table.
     ///
     /// Returns `None` if inserting into the available slot would exceed the
     /// table's load-factor limit. A deleted slot can still be reused at that
@@ -1998,7 +1998,7 @@ impl RawTableInner {
     ///
     /// The control bytes must be properly initialized.
     #[inline]
-    unsafe fn find_insert_slot(&self, hash: u64) -> Option<usize> {
+    unsafe fn find_insert_index_within_capacity(&self, hash: u64) -> Option<usize> {
         unsafe {
             // SAFETY: caller ensures that the control bytes are initialized.
             let index = self.find_insert_index(hash);
