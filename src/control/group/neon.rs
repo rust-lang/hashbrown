@@ -1,6 +1,12 @@
-use super::super::{BitMask, Tag};
-use core::arch::aarch64 as neon;
-use core::num::NonZeroU64;
+use core::{
+    arch::aarch64 as neon,
+    num::NonZeroU64,
+};
+
+use super::super::{
+    BitMask,
+    Tag,
+};
 
 pub(crate) type BitMaskWord = u64;
 pub(crate) type NonZeroBitMaskWord = NonZeroU64;

@@ -1,0 +1,2 @@
+imports_granularity = "Crate"
+imports_layout = "Vertical"

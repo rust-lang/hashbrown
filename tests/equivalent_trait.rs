@@ -1,9 +1,11 @@
 #![expect(missing_docs)] // https://github.com/rust-lang/rust/issues/137561
 
-use hashbrown::Equivalent;
-use hashbrown::HashMap;
-
 use std::hash::Hash;
+
+use hashbrown::{
+    Equivalent,
+    HashMap,
+};
 
 #[derive(Debug, Hash)]
 pub struct Pair<A, B>(pub A, pub B);

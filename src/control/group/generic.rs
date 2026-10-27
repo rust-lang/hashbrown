@@ -1,5 +1,9 @@
-use super::super::{BitMask, Tag};
 use core::ptr;
+
+use super::super::{
+    BitMask,
+    Tag,
+};
 
 // Use the native word size as the group size. Using a 64-bit group size on
 // a 32-bit architecture will just end up being more expensive because

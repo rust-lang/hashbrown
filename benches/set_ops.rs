@@ -4,6 +4,7 @@
 //!
 //! Each assigning test is done in the configuration that is faster. Cheating, I know.
 //! The exception to this is Sub, because there the result differs. So I made two benchmarks for Sub.
+
 use criterion::Criterion;
 use hashbrown::HashSet;
 

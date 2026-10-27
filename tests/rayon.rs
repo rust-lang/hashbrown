@@ -1,12 +1,19 @@
 #![expect(missing_docs)] // https://github.com/rust-lang/rust/issues/137561
 #![cfg(feature = "rayon")]
 
-use hashbrown::{HashMap, HashSet};
+use std::sync::LazyLock;
+
+use hashbrown::{
+    HashMap,
+    HashSet,
+};
 use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelExtend,
+    IntoParallelIterator,
+    IntoParallelRefIterator,
+    IntoParallelRefMutIterator,
+    ParallelExtend,
     ParallelIterator,
 };
-use std::sync::LazyLock;
 
 macro_rules! assert_eq3 {
     ($e1:expr, $e2:expr, $e3:expr) => {{

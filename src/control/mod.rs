@@ -6,5 +6,8 @@ use self::bitmask::BitMask;
 pub(crate) use self::{
     bitmask::BitMaskIter,
     group::Group,
-    tag::{Tag, TagSliceExt},
+    tag::{
+        Tag,
+        TagSliceExt,
+    },
 };

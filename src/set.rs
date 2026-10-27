@@ -1,14 +1,42 @@
-use crate::{Equivalent, TryReserveError};
-use core::cell::UnsafeCell;
-use core::fmt;
-use core::hash::{BuildHasher, Hash};
-use core::iter::{Chain, FusedIterator};
-use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Sub, SubAssign};
+use core::{
+    cell::UnsafeCell,
+    fmt,
+    hash::{
+        BuildHasher,
+        Hash,
+    },
+    iter::{
+        Chain,
+        FusedIterator,
+    },
+    ops::{
+        BitAnd,
+        BitAndAssign,
+        BitOr,
+        BitOrAssign,
+        BitXor,
+        BitXorAssign,
+        Sub,
+        SubAssign,
+    },
+};
 
-use super::map::{self, HashMap, Keys};
-use crate::DefaultHashBuilder;
-use crate::alloc::{Allocator, Global};
-use crate::raw::RawExtractIf;
+use crate::{
+    DefaultHashBuilder,
+    Equivalent,
+    TryReserveError,
+    alloc::{
+        Allocator,
+        Global,
+    },
+    raw::RawExtractIf,
+};
+
+use super::map::{
+    self,
+    HashMap,
+    Keys,
+};
 
 // Future Optimization (FIXME!)
 // =============================
@@ -2545,10 +2573,17 @@ fn assert_covariance() {
 
 #[cfg(test)]
 mod test_set {
-    use super::{Equivalent, HashSet};
-    use crate::DefaultHashBuilder;
-    use crate::map::make_hash;
     use std::vec::Vec;
+
+    use crate::{
+        DefaultHashBuilder,
+        map::make_hash,
+    };
+
+    use super::{
+        Equivalent,
+        HashSet,
+    };
 
     #[test]
     fn test_zero_capacities() {
@@ -3046,7 +3081,11 @@ mod test_set {
     #[test]
     #[should_panic]
     fn some_invalid_equivalent() {
-        use core::hash::{Hash, Hasher};
+        use core::hash::{
+            Hash,
+            Hasher,
+        };
+
         struct Invalid {
             count: u32,
             other: u32,
