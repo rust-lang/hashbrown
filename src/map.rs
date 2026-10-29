@@ -3785,7 +3785,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn key(&self) -> &K {
+    pub fn key(&self) -> &'a K {
         unsafe { &self.elem.as_ref().0 }
     }
 
@@ -3926,7 +3926,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get(&self) -> &V {
+    pub fn get(&self) -> &'a V {
         unsafe { &self.elem.as_ref().1 }
     }
 
@@ -3958,7 +3958,7 @@ impl<'a, K, V, S, A: Allocator> OccupiedEntry<'a, K, V, S, A> {
     /// assert_eq!(map["poneyland"], 24);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get_mut(&mut self) -> &mut V {
+    pub fn get_mut(&mut self) -> &'a mut V {
         unsafe { &mut self.elem.as_mut().1 }
     }
 
@@ -5850,11 +5850,21 @@ mod test_map {
 
         let mut map: HashMap<_, _> = xs.iter().copied().collect();
 
+        // Existing key (get)
+        assert_eq!(
+            (&1, &10),
+            match map.entry(1) {
+                Vacant(_) => unreachable!(),
+                Occupied(view) => {
+                    (view.key(), view.get())
+                }
+            }
+        );
+
         // Existing key (insert)
         match map.entry(1) {
             Vacant(_) => unreachable!(),
             Occupied(mut view) => {
-                assert_eq!(view.get(), &10);
                 assert_eq!(view.insert(100), 10);
             }
         }
@@ -5862,13 +5872,14 @@ mod test_map {
         assert_eq!(map.len(), 6);
 
         // Existing key (update)
-        match map.entry(2) {
-            Vacant(_) => unreachable!(),
-            Occupied(mut view) => {
-                let v = view.get_mut();
-                let new_v = (*v) * 10;
-                *v = new_v;
-            }
+        {
+            let v = match map.entry(2) {
+                Vacant(_) => unreachable!(),
+                Occupied(mut view) => view.get_mut(),
+            };
+
+            let new_v = (*v) * 10;
+            *v = new_v;
         }
         assert_eq!(map.get(&2).unwrap(), &200);
         assert_eq!(map.len(), 6);

@@ -2391,7 +2391,7 @@ impl<'a, T, S, A: Allocator> Entry<'a, T, S, A> {
     }
 }
 
-impl<T, S, A: Allocator> OccupiedEntry<'_, T, S, A> {
+impl<'a, T, S, A: Allocator> OccupiedEntry<'a, T, S, A> {
     /// Gets a reference to the value in the entry.
     ///
     /// # Examples
@@ -2408,7 +2408,7 @@ impl<T, S, A: Allocator> OccupiedEntry<'_, T, S, A> {
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn get(&self) -> &T {
+    pub fn get(&self) -> &'a T {
         self.inner.key()
     }
 
@@ -2545,6 +2545,7 @@ fn assert_covariance() {
 
 #[cfg(test)]
 mod test_set {
+    use super::Entry::{Occupied, Vacant};
     use super::{Equivalent, HashSet};
     use crate::DefaultHashBuilder;
     use crate::map::make_hash;
@@ -3085,5 +3086,43 @@ mod test_set {
         if make_hash(set.hasher(), &key) == make_hash(set.hasher(), &value) {
             set.get_or_insert_with(&key, |_| value);
         }
+    }
+
+    #[test]
+    fn test_entry() {
+        let xs = [10, 20, 30, 40, 50, 60];
+
+        let mut set: HashSet<_> = xs.iter().copied().collect();
+
+        // Existing key (get)
+        assert_eq!(
+            &10,
+            match set.entry(10) {
+                Vacant(_) => unreachable!(),
+                Occupied(view) => {
+                    view.get()
+                }
+            }
+        );
+
+        // Existing key (remove)
+        assert_eq!(
+            20,
+            match set.entry(20) {
+                Vacant(_) => unreachable!(),
+                Occupied(view) => view.remove(),
+            }
+        );
+
+        // Inexistent key (insert)
+        assert_eq!(
+            &1000,
+            match set.entry(1000) {
+                Occupied(_) => unreachable!(),
+                Vacant(view) => view.insert().get(),
+            }
+        );
+        assert_eq!(set.get(&1000).unwrap(), &1000);
+        assert_eq!(set.len(), 6);
     }
 }
