@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `HashTable::try_insert_unique_within_capacity` and
+  `HashTable::try_insert_unique_without_rehash` (#621)
+
 ## [0.17.1](https://github.com/rust-lang/hashbrown/compare/v0.17.0...v0.17.1) - 2026-04-20
 
 ### Added
