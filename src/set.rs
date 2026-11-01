@@ -42,6 +42,21 @@ use crate::raw::RawExtractIf;
 /// panic does occur then the contents of the `HashSet` may become corrupted and
 /// some items may be dropped from the table.
 ///
+/// # Compatibility notes
+///
+/// While it seems likely that the map will provide stable ordering between
+/// different types of iteration, at least without any addition/removal of
+/// keys, you should not rely on this in practice. Even if such behavior is
+/// unlikely to occur, you should expect:
+///
+/// * Cloned sets/iterators to have different iteration order
+/// * Identical methods to have different orderings between calls
+/// * A general inability to correlate orderings between different methods
+///
+/// If you're interested in these sorts of guarantees, you should seek
+/// alternative set implementations like the `IndexSet` mentioned in the
+/// corresponding [`HashTable`](crate::HashTable) docs.
+///
 /// # Examples
 ///
 /// ```
