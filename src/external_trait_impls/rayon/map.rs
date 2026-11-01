@@ -288,7 +288,7 @@ impl<K: Sync, V: Sync, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn par_keys(&self) -> ParKeys<'_, K, V> {
         ParKeys {
-            inner: unsafe { self.table.par_iter() },
+            inner: unsafe { self.table.raw.par_iter() },
             marker: PhantomData,
         }
     }
@@ -297,7 +297,7 @@ impl<K: Sync, V: Sync, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn par_values(&self) -> ParValues<'_, K, V> {
         ParValues {
-            inner: unsafe { self.table.par_iter() },
+            inner: unsafe { self.table.raw.par_iter() },
             marker: PhantomData,
         }
     }
@@ -308,7 +308,7 @@ impl<K: Send, V: Send, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn par_values_mut(&mut self) -> ParValuesMut<'_, K, V> {
         ParValuesMut {
-            inner: unsafe { self.table.par_iter() },
+            inner: unsafe { self.table.raw.par_iter() },
             marker: PhantomData,
         }
     }
@@ -318,7 +318,7 @@ impl<K: Send, V: Send, S, A: Allocator> HashMap<K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn par_drain(&mut self) -> ParDrain<'_, K, V, A> {
         ParDrain {
-            inner: self.table.par_drain(),
+            inner: self.table.raw.par_drain(),
         }
     }
 }
@@ -349,7 +349,7 @@ impl<K: Send, V: Send, S, A: Allocator + Send> IntoParallelIterator for HashMap<
     #[cfg_attr(feature = "inline-more", inline)]
     fn into_par_iter(self) -> Self::Iter {
         IntoParIter {
-            inner: self.table.into_par_iter(),
+            inner: self.table.raw.into_par_iter(),
         }
     }
 }
@@ -361,7 +361,7 @@ impl<'a, K: Sync, V: Sync, S, A: Allocator> IntoParallelIterator for &'a HashMap
     #[cfg_attr(feature = "inline-more", inline)]
     fn into_par_iter(self) -> Self::Iter {
         ParIter {
-            inner: unsafe { self.table.par_iter() },
+            inner: unsafe { self.table.raw.par_iter() },
             marker: PhantomData,
         }
     }
@@ -374,7 +374,7 @@ impl<'a, K: Sync, V: Send, S, A: Allocator> IntoParallelIterator for &'a mut Has
     #[cfg_attr(feature = "inline-more", inline)]
     fn into_par_iter(self) -> Self::Iter {
         ParIterMut {
-            inner: unsafe { self.table.par_iter() },
+            inner: unsafe { self.table.raw.par_iter() },
             marker: PhantomData,
         }
     }
