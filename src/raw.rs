@@ -14,7 +14,7 @@ use stdalloc::alloc::handle_alloc_error;
 
 #[cfg(test)]
 use crate::alloc::AllocError;
-use crate::alloc::{Allocator, Global, do_alloc};
+use crate::alloc::{Allocator, Global};
 
 #[inline]
 unsafe fn offset_from<T>(to: *const T, from: *const T) -> usize {
@@ -1562,7 +1562,7 @@ impl RawTableInner {
     ///
     /// See also [`Allocator`] API for other safety concerns.
     ///
-    /// [`Allocator`]: stdalloc::alloc::Allocator
+    /// [`Allocator`]: core::alloc::Allocator
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn new_uninitialized<A>(
         alloc: &A,
@@ -1580,7 +1580,7 @@ impl RawTableInner {
             return Err(fallibility.capacity_overflow());
         };
 
-        let ptr: NonNull<u8> = match do_alloc(alloc, layout) {
+        let ptr: NonNull<u8> = match alloc.allocate(layout) {
             Ok(block) => {
                 // The allocator can't return a value smaller than was
                 // requested, so this can be != instead of >=.
@@ -3108,7 +3108,7 @@ impl RawTableInner {
     ///
     /// [`Undefined Behavior`]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     /// [`GlobalAlloc::dealloc`]: stdalloc::alloc::GlobalAlloc::dealloc
-    /// [`Allocator::deallocate`]: stdalloc::alloc::Allocator::deallocate
+    /// [`Allocator::deallocate`]: core::alloc::Allocator::deallocate
     #[inline]
     unsafe fn free_buckets<A>(&mut self, alloc: &A, table_layout: TableLayout)
     where

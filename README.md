@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/rust-lang/hashbrown/actions/workflows/rust.yml/badge.svg)](https://github.com/rust-lang/hashbrown/actions)
 [![crates.io](https://img.shields.io/crates/v/hashbrown.svg)](https://crates.io/crates/hashbrown)
 [![Documentation](https://docs.rs/hashbrown/badge.svg)](https://docs.rs/hashbrown)
-[![Rust](https://img.shields.io/badge/rust-1.85.0%2B-blue.svg?maxAge=3600)](https://github.com/rust-lang/hashbrown)
+[![Rust](https://img.shields.io/badge/rust-1.100.0%2B-blue.svg?maxAge=3600)](https://github.com/rust-lang/hashbrown)
 
 This crate is a Rust port of Google's high-performance [SwissTable] hash map,
 adapted to make it a drop-in replacement for Rust's standard `HashMap` and
@@ -70,8 +70,6 @@ This crate has the following Cargo features:
   performance at the cost of compilation time. (enabled by default)
 - `default-hasher`: Compiles with foldhash as default hasher. (enabled by
   default)
-- `allocator-api2`: Enables support for allocators that support
-  `allocator-api2`. (enabled by default)
 
 ## License
 
