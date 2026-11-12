@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped MSRV to 1.100.
+- Collections now use the standard library's `core::alloc::Allocator` trait
+  (stable as of Rust 1.100) instead of the `allocator-api2` crate. Custom
+  allocators must implement `core::alloc::Allocator`.
+
+### Removed
+
+- The `allocator-api2` feature and dependency. Allocators implementing only
+  `allocator-api2::alloc::Allocator` are no longer accepted.
+
 ## [0.17.1](https://github.com/rust-lang/hashbrown/compare/v0.17.0...v0.17.1) - 2026-04-20
 
 ### Added

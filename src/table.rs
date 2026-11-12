@@ -106,14 +106,12 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "nightly")]
-    /// # fn test() {
-    /// use bumpalo::Bump;
+    /// use std::alloc::Global;
     /// use hashbrown::{HashTable, DefaultHashBuilder};
     /// use std::hash::BuildHasher;
     ///
-    /// let bump = Bump::new();
-    /// let mut table = HashTable::new_in(&bump);
+    /// let alloc = Global;
+    /// let mut table = HashTable::new_in(&alloc);
     /// let hasher = DefaultHashBuilder::default();
     /// let hasher = |val: &_| hasher.hash_one(val);
     ///
@@ -129,11 +127,6 @@ where
     /// assert_eq!(table.len(), 1);
     /// // And it also allocates some capacity
     /// assert!(table.capacity() > 1);
-    /// # }
-    /// # fn main() {
-    /// #     #[cfg(feature = "nightly")]
-    /// #     test()
-    /// # }
     /// ```
     #[must_use]
     pub const fn new_in(alloc: A) -> Self {
@@ -150,14 +143,12 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "nightly")]
-    /// # fn test() {
-    /// use bumpalo::Bump;
+    /// use std::alloc::Global;
     /// use hashbrown::{HashTable, DefaultHashBuilder};
     /// use std::hash::BuildHasher;
     ///
-    /// let bump = Bump::new();
-    /// let mut table = HashTable::with_capacity_in(5, &bump);
+    /// let alloc = Global;
+    /// let mut table = HashTable::with_capacity_in(5, &alloc);
     /// let hasher = DefaultHashBuilder::default();
     /// let hasher = |val: &_| hasher.hash_one(val);
     ///
@@ -178,11 +169,6 @@ where
     /// assert_eq!(table.len(), 5);
     /// // But its capacity isn't changed
     /// assert_eq!(table.capacity(), empty_map_capacity)
-    /// # }
-    /// # fn main() {
-    /// #     #[cfg(feature = "nightly")]
-    /// #     test()
-    /// # }
     /// ```
     #[must_use]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {

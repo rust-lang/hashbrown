@@ -326,10 +326,9 @@ impl<K, V, A: Allocator> HashMap<K, V, DefaultHashBuilder, A> {
     ///
     /// ```
     /// use hashbrown::HashMap;
-    /// use bumpalo::Bump;
     ///
-    /// let bump = Bump::new();
-    /// let mut map = HashMap::new_in(&bump);
+    /// let alloc = std::alloc::Global;
+    /// let mut map = HashMap::new_in(&alloc);
     ///
     /// // The created HashMap holds none elements
     /// assert_eq!(map.len(), 0);
@@ -370,10 +369,9 @@ impl<K, V, A: Allocator> HashMap<K, V, DefaultHashBuilder, A> {
     ///
     /// ```
     /// use hashbrown::HashMap;
-    /// use bumpalo::Bump;
     ///
-    /// let bump = Bump::new();
-    /// let mut map = HashMap::with_capacity_in(5, &bump);
+    /// let alloc = std::alloc::Global;
+    /// let mut map = HashMap::with_capacity_in(5, &alloc);
     ///
     /// // The created HashMap holds none elements
     /// assert_eq!(map.len(), 0);
@@ -5082,7 +5080,8 @@ mod test_map {
     use super::Entry::{Occupied, Vacant};
     use super::EntryRef;
     use super::HashMap;
-    use crate::alloc::{AllocError, Allocator, Global};
+    use crate::alloc::Global;
+    use crate::alloc::{AllocError, Allocator};
     use core::alloc::Layout;
     use core::ptr::NonNull;
     use core::sync::atomic::{AtomicI8, Ordering};
@@ -6917,18 +6916,13 @@ mod test_map {
     }
 }
 
-#[cfg(all(test, unix, any(feature = "nightly", feature = "allocator-api2")))]
+#[cfg(all(test, unix))]
 mod test_map_with_mmap_allocations {
     use super::HashMap;
+    use crate::alloc::{AllocError, Allocator};
     use crate::raw::prev_pow2;
     use core::alloc::Layout;
     use core::ptr::{NonNull, null_mut};
-
-    #[cfg(feature = "nightly")]
-    use core::alloc::{AllocError, Allocator};
-
-    #[cfg(all(feature = "allocator-api2", not(feature = "nightly")))]
-    use allocator_api2::alloc::{AllocError, Allocator};
 
     /// This is not a production quality allocator, just good enough for
     /// some basic tests.
