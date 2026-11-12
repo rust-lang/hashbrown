@@ -25,6 +25,7 @@ jobs:
         persist-credentials: false
     - name: Install taplo
       run: curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz | gzip -d - | install -m 755 /dev/stdin /usr/local/bin/taplo
+    - run: rustup install nightly && rustup default nightly
     - env:
         TARGET: i586-unknown-linux-gnu
         CHANNEL: nightly
