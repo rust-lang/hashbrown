@@ -80,12 +80,7 @@ criterion = { version = "0.7", features = ["html_reports"] }
 libc = "0.2.155"
 
 [features]
-default = [
-  "default-hasher",
-  "inline-more",
-  "equivalent",
-  "raw-entry",
-]
+default = ["default-hasher", "inline-more", "equivalent", "raw-entry"]
 
 # Enables use of nightly features. This is only guaranteed to work on the latest
 # version of nightly Rust.
