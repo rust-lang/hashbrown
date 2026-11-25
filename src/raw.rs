@@ -624,9 +624,10 @@ impl<T, A: Allocator> RawTable<T, A> {
         }
     }
 
-    /// Allocates a new hash table with the given number of buckets.
+    /// Allocates an uninitialized table with exactly the given number of buckets.
     ///
-    /// The control bytes are left uninitialized.
+    /// Do not use allocator slack here: the clone destination must match the
+    /// source's bucket count.
     #[cfg_attr(feature = "inline-more", inline)]
     unsafe fn new_uninitialized(
         alloc: A,
@@ -637,7 +638,13 @@ impl<T, A: Allocator> RawTable<T, A> {
 
         Ok(Self {
             table: unsafe {
-                RawTableInner::new_uninitialized(&alloc, Self::TABLE_LAYOUT, buckets, fallibility)
+                RawTableInner::new_uninitialized(
+                    &alloc,
+                    Self::TABLE_LAYOUT,
+                    buckets,
+                    fallibility,
+                    false,
+                )
             }?,
             alloc,
             marker: PhantomData,
@@ -1569,6 +1576,7 @@ impl RawTableInner {
         table_layout: TableLayout,
         mut buckets: usize,
         fallibility: Fallibility,
+        utilize_oversized: bool,
     ) -> Result<Self, TryReserveError>
     where
         A: Allocator,
@@ -1584,19 +1592,24 @@ impl RawTableInner {
             Ok(block) => {
                 // The allocator can't return a value smaller than was
                 // requested, so this can be != instead of >=.
-                if block.len() != layout.size() {
+                if utilize_oversized && block.len() != layout.size() {
                     // Utilize over-sized allocations.
                     let x = maximum_buckets_in(block.len(), table_layout, Group::WIDTH);
-                    debug_assert!(x >= buckets);
-                    // Calculate the new ctrl_offset.
-                    let (oversized_layout, oversized_ctrl_offset) = {
-                        let option = table_layout.calculate_layout_for(x);
-                        unsafe { option.unwrap_unchecked() }
-                    };
-                    debug_assert!(oversized_layout.size() <= block.len());
-                    debug_assert!(oversized_ctrl_offset >= ctrl_offset);
-                    ctrl_offset = oversized_ctrl_offset;
-                    buckets = x;
+                    // The estimate does not account for all alignment padding.
+                    // Validate the full layout before committing to the upgrade.
+                    if let Some((oversized_layout, oversized_ctrl_offset)) =
+                        table_layout.calculate_layout_for(x)
+                    {
+                        if x >= buckets && oversized_layout.size() <= block.len() {
+                            ctrl_offset = oversized_ctrl_offset;
+                            buckets = x;
+                        }
+                    }
+                    // If the upgraded layout does not fit (or `x` is smaller
+                    // than the requested bucket count), keep the requested
+                    // `buckets` and the original `layout`/`ctrl_offset`: the
+                    // returned block is always at least `layout.size()` bytes,
+                    // so that is safe.
                 }
 
                 block.cast()
@@ -1638,7 +1651,7 @@ impl RawTableInner {
                     .ok_or_else(|| fallibility.capacity_overflow())?;
 
                 let mut result =
-                    Self::new_uninitialized(alloc, table_layout, buckets, fallibility)?;
+                    Self::new_uninitialized(alloc, table_layout, buckets, fallibility, true)?;
                 // SAFETY: We checked that the table is allocated and therefore the table already has
                 // `self.bucket_mask + 1 + Group::WIDTH` number of control bytes (see TableLayout::calculate_layout_for)
                 // so writing `self.num_ctrl_bytes() == bucket_mask + 1 + Group::WIDTH` bytes is safe.
@@ -3370,6 +3383,7 @@ impl<T: Clone, A: Allocator + Clone> Clone for RawTable<T, A> {
                             Self::TABLE_LAYOUT,
                             source.num_buckets(),
                             Fallibility::Infallible,
+                            false,
                         );
                         result.unwrap_unchecked()
                     };
