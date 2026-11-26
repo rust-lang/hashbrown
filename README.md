@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/rust-lang/hashbrown/actions/workflows/rust.yml/badge.svg)](https://github.com/rust-lang/hashbrown/actions)
 [![crates.io](https://img.shields.io/crates/v/hashbrown.svg)](https://crates.io/crates/hashbrown)
 [![Documentation](https://docs.rs/hashbrown/badge.svg)](https://docs.rs/hashbrown)
-[![Rust](https://img.shields.io/badge/rust-1.85.0%2B-blue.svg?maxAge=3600)](https://github.com/rust-lang/hashbrown)
+[![Rust](https://img.shields.io/badge/rust-1.91.0%2B-blue.svg?maxAge=3600)](https://github.com/rust-lang/hashbrown)
 
 This crate provides the implementation of the standard library `HashMap` and
 `HashSet` types, with the ability to experiment without the standard library's
@@ -61,6 +61,7 @@ This crate has the following Cargo features:
 - `nightly`: Enables nightly-only features including: `#[may_dangle]`.
 - `serde`: Enables serde serialization support.
 - `rayon`: Enables rayon parallel iterator support.
+- `paralight`: Enables paralight parallel iterator support.
 - `equivalent`: Allows comparisons to be customized with the `Equivalent` trait.
   (enabled by default)
 - `raw-entry`: Enables access to the deprecated `RawEntry` API.
