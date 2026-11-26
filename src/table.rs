@@ -45,6 +45,23 @@ use crate::{
 /// [`HashMap`]: super::HashMap
 /// [`HashSet`]: super::HashSet
 /// [`Hash`]: core::hash::Hash
+///
+/// # Compatibility notes
+///
+/// While it seems likely that the table will provide stable ordering between
+/// different types of iteration, at least without any mutation that affects
+/// hashes or equality, you should not rely on this in practice. Even if such
+/// behavior is unlikely to occur, you should expect:
+///
+/// * Cloned tables/iterators to have different iteration order
+/// * Identical methods to have different orderings between calls
+/// * A general inability to correlate orderings between different methods
+///
+/// If you're interested in these sorts of guarantees, you should either
+/// implement your own form of `IndexMap` (as mentioned above) or use an
+/// existing implementation, since this will both guarantee stability and
+/// increase the speed of iteration due to not needing to handle gaps in the
+/// table.
 pub struct HashTable<T, A = Global>
 where
     A: Allocator,
