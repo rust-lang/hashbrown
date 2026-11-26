@@ -32,10 +32,7 @@ pub struct HashSetRefParallelSource<'data, T, S, A: Allocator> {
 // - it is safe to fetch a reference to any item an unlimited number of times
 //   and concurrently,
 // - the source doesn't need cleanup.
-unsafe impl<'data, T, S, A: Allocator> RewindableSource
-    for HashSetRefParallelSource<'data, T, S, A>
-{
-}
+unsafe impl<T, S, A: Allocator> RewindableSource for HashSetRefParallelSource<'_, T, S, A> {}
 
 impl<'data, T: Sync, S, A: Allocator> ParallelSource for HashSetRefParallelSource<'data, T, S, A> {
     type Item = &'data T;
@@ -114,10 +111,7 @@ pub struct HashMapRefParallelSource<'data, K, V, S, A: Allocator> {
 // - it is safe to fetch a reference to any (key, value) pair an unlimited
 //   number of times and concurrently,
 // - the source doesn't need cleanup.
-unsafe impl<'data, K, V, S, A: Allocator> RewindableSource
-    for HashMapRefParallelSource<'data, K, V, S, A>
-{
-}
+unsafe impl<K, V, S, A: Allocator> RewindableSource for HashMapRefParallelSource<'_, K, V, S, A> {}
 
 impl<'data, K: Sync, V: Sync, S, A: Allocator> ParallelSource
     for HashMapRefParallelSource<'data, K, V, S, A>
