@@ -11,7 +11,7 @@ exclude = [".github", "/ci/*"]
 edition = "2024"
 
 # Make sure to sync this MSRV in the README badge and CI workflows
-rust-version = "1.85.0"
+rust-version = "1.91.0"
 autobenches = false
 
 [lints.rust]
