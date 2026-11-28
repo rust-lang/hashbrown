@@ -3,3 +3,5 @@ repo = "hashbrown"
 path = "library/hashbrown"
 filter-version = 2
 pull-mode = "Latest"
+push-pr.suffix = "r? @ghost"
+pull-pr.suffix = "r? @ghost"
