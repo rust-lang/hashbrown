@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3](https://github.com/rust-lang/hashbrown/compare/v0.17.2...v0.17.3) - 2026-11-28
+
+### Other
+
+- r? ghost in josh-sync.toml
+- Merge ref '96be22caa35b' from rust-lang/rust
+- Prepare for merging from rust-lang/rust
+- Not-so-pointless change to hashbrown subtree
+- Prepare for merging from rust-lang/rust
+
 ## [0.17.2](https://github.com/rust-lang/hashbrown/compare/v0.17.1...v0.17.2) - 2026-11-22
 
 ### Changed
